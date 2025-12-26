@@ -20,6 +20,11 @@ values:
     request_mem: 128
 envs:
   ETCDCTL_API: "3"
+  OAUTH_PROVIDER: iam
+  OAUTH_CLIENT_ID: erda
+  OAUTH_CLIENT_SECRET: d88d437db773499991683df4bf09876b
+  OAUTH_COOKIE_NAME: erda_iam
+  SESSION_COOKIE_NAME: erda_iam
   MONITOR_ADDR: monitor:7096
   COLLECTOR_ADDR: collector:7076
   PIPELINE_ADDR: pipeline:3081
