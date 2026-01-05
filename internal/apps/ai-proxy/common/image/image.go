@@ -20,8 +20,9 @@ import (
 	"strings"
 
 	"github.com/sashabaranov/go-openai"
+	"github.com/sirupsen/logrus"
 
-	"github.com/erda-project/erda/internal/apps/ai-proxy/filters/assets"
+	temp_assets "github.com/erda-project/erda/internal/apps/ai-proxy/route/filters/request/ai-proxy/temp-assets"
 	"github.com/erda-project/erda/pkg/numeral"
 )
 
@@ -29,8 +30,8 @@ func HandleChatImage(req *openai.ChatCompletionRequest) error {
 	if req == nil {
 		return nil
 	}
-	if !assets.Available() {
-		return fmt.Errorf("assets service is not available")
+	if !temp_assets.Available() {
+		logrus.Warnf("assets service is not available")
 	}
 	for i, msg := range req.Messages {
 		for j, part := range msg.MultiContent {
@@ -56,7 +57,7 @@ func HandleChatImage(req *openai.ChatCompletionRequest) error {
 				return fmt.Errorf("failed to decode base64 content: %v", err)
 			}
 			// get download url
-			downloadURL, err := assets.Upload("chat-image.png", decodedBytes)
+			downloadURL, err := temp_assets.Upload("chat-image.png", decodedBytes)
 			if err != nil {
 				return fmt.Errorf("failed to upload image: %v", err)
 			}

@@ -19,16 +19,18 @@ import "github.com/jinzhu/gorm"
 // DB .
 type DB struct {
 	*gorm.DB
-	Monitor        MonitorDb
-	InstanceTenant InstanceTenantDb
+	Monitor               MonitorDb
+	InstanceTenant        InstanceTenantDb
+	MonitorConfigRegister *MonitorConfigRegisterDB
 }
 
 // New .
 func New(db *gorm.DB) *DB {
 	return &DB{
-		DB:             db,
-		Monitor:        MonitorDb{db},
-		InstanceTenant: InstanceTenantDb{db},
+		DB:                    db,
+		Monitor:               MonitorDb{db},
+		InstanceTenant:        InstanceTenantDb{db},
+		MonitorConfigRegister: NewMonitorConfigRegisterDB(db),
 	}
 }
 

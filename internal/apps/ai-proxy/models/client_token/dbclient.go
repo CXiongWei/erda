@@ -42,6 +42,10 @@ type DBClient struct {
 }
 
 func (dbClient *DBClient) Create(ctx context.Context, req *pb.ClientTokenCreateRequest) (*pb.ClientToken, error) {
+	// set default expire option
+	if req.ExpireInHours == 0 {
+		req.ExpireInHours = defaultExpireInHours
+	}
 	// query first
 	if req.CreateOrGet {
 		pagingResp, err := dbClient.Paging(ctx, &pb.ClientTokenPagingRequest{
@@ -54,21 +58,16 @@ func (dbClient *DBClient) Create(ctx context.Context, req *pb.ClientTokenCreateR
 			return nil, fmt.Errorf("failed to paging token, clientId: %s, userId: %s, err: %v", req.ClientId, req.UserId, err)
 		}
 		if pagingResp.Total == 1 { // already exist, return directly
-			if req.Metadata != nil { // do update
-				return dbClient.Update(ctx, &pb.ClientTokenUpdateRequest{
-					ClientId: req.ClientId,
-					Token:    pagingResp.List[0].Token,
-					Metadata: req.Metadata,
-				})
-			}
-			return pagingResp.List[0], nil
+			// do update to auto-renewal token
+			return dbClient.Update(ctx, &pb.ClientTokenUpdateRequest{
+				ClientId:      req.ClientId,
+				Token:         pagingResp.List[0].Token,
+				Metadata:      req.Metadata,
+				ExpireInHours: req.ExpireInHours,
+			})
 		}
 	}
 	// do create
-	// set default expire option
-	if req.ExpireInHours == 0 {
-		req.ExpireInHours = defaultExpireInHours
-	}
 	c := &ClientToken{
 		ClientID:  req.ClientId,
 		UserID:    req.UserId,
@@ -132,7 +131,7 @@ func (dbClient *DBClient) Update(ctx context.Context, req *pb.ClientTokenUpdateR
 
 func (dbClient *DBClient) Paging(ctx context.Context, req *pb.ClientTokenPagingRequest) (*pb.ClientTokenPagingResponse, error) {
 	c := &ClientToken{ClientID: req.ClientId, UserID: req.UserId, Token: req.Token}
-	sql := dbClient.DB.Model(c).Where(c)
+	sql := dbClient.DB.Model(c)
 	var (
 		total int64
 		list  ClientTokens
@@ -144,7 +143,7 @@ func (dbClient *DBClient) Paging(ctx context.Context, req *pb.ClientTokenPagingR
 		req.PageSize = 10
 	}
 	offset := (req.PageNum - 1) * req.PageSize
-	err := sql.Count(&total).Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
+	err := sql.WithContext(ctx).Where(c).Count(&total).Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
 	if err != nil {
 		return nil, err
 	}

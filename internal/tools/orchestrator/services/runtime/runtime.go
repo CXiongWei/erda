@@ -1526,6 +1526,8 @@ func (r *Runtime) GetServiceByRuntime(runtimeIDs []uint64) (map[uint64]*apistruc
 				sync.RWMutex
 				m map[uint64]*apistructs.RuntimeSummaryDTO
 			}, deployment *dbclient.Deployment, runtimeHPARules []dbclient.RuntimeHPA, runtimeVPARules []dbclient.RuntimeVPA) {
+				defer wg.Done()
+
 				d := apistructs.RuntimeSummaryDTO{}
 				sg, err := r.serviceGroupImpl.InspectServiceGroupWithTimeout(rt.ScheduleName.Namespace, rt.ScheduleName.Name)
 				if err != nil {
@@ -1545,7 +1547,6 @@ func (r *Runtime) GetServiceByRuntime(runtimeIDs []uint64) (map[uint64]*apistruc
 				servicesMap.Lock()
 				servicesMap.m[rt.ID] = &d
 				servicesMap.Unlock()
-				wg.Done()
 			}(runtime, &wg, &servicesMap, deployment, runtimeHPARules, runtimeVPARules)
 		}
 	}
@@ -1869,16 +1870,38 @@ func (r *Runtime) GetSpec(userID user.ID, orgID uint64, runtimeID uint64) (*apis
 	return r.serviceGroupImpl.InspectServiceGroupWithTimeout(runtime.ScheduleName.Namespace, runtime.ScheduleName.Name)
 }
 
-func (r *Runtime) KillPod(runtimeID uint64, podname string) error {
+func (r *Runtime) KillPod(runtimeID uint64, podName string, audit *apistructs.Audit) error {
 	runtime, err := r.db.GetRuntime(runtimeID)
 	if err != nil {
 		return err
 	}
 
-	if runtime.ScheduleName.Namespace == "" || runtime.ScheduleName.Name == "" || podname == "" {
-		return errors.New("empty namespace or name or podname")
+	app, err := r.bdl.GetApp(runtime.ApplicationID)
+	if err != nil {
+		return err
 	}
-	return r.serviceGroupImpl.KillPod(context.Background(), runtime.ScheduleName.Namespace, runtime.ScheduleName.Name, podname)
+
+	defer func() {
+		audit.OrgID = runtime.OrgID
+		audit.TemplateName = apistructs.KillPodTemplate
+		audit.ScopeType = apistructs.AppScope
+		audit.ScopeID = runtime.ApplicationID
+		audit.AppID = runtime.ApplicationID
+		audit.ProjectID = runtime.ProjectID
+		audit.Context = map[string]interface{}{
+			"workspace":   runtime.Workspace,
+			"runtime":     runtime.Name,
+			"podName":     podName,
+			"projectName": app.ProjectName,
+			"appName":     app.Name,
+		}
+		audit.EndTime = strconv.FormatInt(time.Now().Unix(), 10)
+	}()
+
+	if runtime.ScheduleName.Namespace == "" || runtime.ScheduleName.Name == "" || podName == "" {
+		return errors.New("empty namespace or name or pod name")
+	}
+	return r.serviceGroupImpl.KillPod(context.Background(), runtime.ScheduleName.Namespace, runtime.ScheduleName.Name, podName)
 }
 
 func (r *Runtime) GetRuntimeServiceCurrentPods(runtimeID uint64, serviceName string) (*apistructs.ServiceGroup, error) {
@@ -2081,11 +2104,35 @@ func (r *Runtime) fullGCForSingleRuntime(runtimeID uint64, keep int) {
 		return
 	}
 	oldestID := top[len(top)-1].ID
+
+	var unMarked = make(map[string]struct{})
+	for i, deployment := range top {
+		if i < keep {
+			unMarked[deployment.ReleaseId] = struct{}{}
+			continue
+		}
+		break
+	}
+
+	var hasSuccess bool
+	for _, deployment := range top {
+		if deployment.Status == apistructs.DeploymentStatusOK {
+			hasSuccess = true
+			break
+		}
+	}
 	if deployments, err := r.db.FindNotOutdatedOlderThan(runtimeID, oldestID); err != nil {
 		logrus.Errorf("[alert] failed to set outdated, runtimeID: %v, maxID: %v, (%v)",
 			runtimeID, oldestID, err)
 	} else {
 		for i := range deployments {
+			if !hasSuccess && deployments[i].Status == apistructs.DeploymentStatusOK {
+				hasSuccess = true
+				continue
+			}
+			if _, ok := unMarked[deployments[i].ReleaseId]; ok {
+				continue
+			}
 			r.markOutdated(&deployments[i])
 		}
 	}

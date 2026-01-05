@@ -1,0 +1,88 @@
+// Copyright (c) 2021 Terminus, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package dumplog
+
+import (
+	"net/http"
+	"net/http/httputil"
+
+	"github.com/erda-project/erda/internal/apps/ai-proxy/common/audit/audithelper"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/common/ctxhelper"
+)
+
+func DumpRequestIn(in *http.Request) {
+	logger := ctxhelper.MustGetLoggerBase(in.Context())
+	contentType := in.Header.Get("Content-Type")
+	shouldDumpBody := ShouldDumpBody(contentType)
+
+	dumpBytesIn, err := httputil.DumpRequest(in, shouldDumpBody)
+	if err != nil {
+		logger.Warnf("failed to dump request in, err: %v", err)
+		return
+	}
+
+	dumpString := string(dumpBytesIn)
+	if shouldDumpBody && isMultipartFormData(contentType) {
+		sanitized, err := sanitizeMultipartDump(dumpBytesIn, contentType)
+		if err != nil {
+			logger.Warnf("failed to sanitize multipart request body, err: %v", err)
+			dumpString = "(multipart body sanitized failed)"
+		} else if sanitized != "" {
+			dumpString = sanitized
+		}
+	}
+
+	if shouldDumpBody {
+		logger.Debugf("dump proxy request in:\n%s", dumpString)
+	} else {
+		logger.Debugf("dump proxy request in (body omitted due to binary content-type: %s):\n%s", contentType, dumpString)
+	}
+
+	// save to sink
+	audithelper.Note(in.Context(), "request_body", dumpString)
+}
+
+func DumpRequestOut(out *http.Request) {
+	logger := ctxhelper.MustGetLoggerBase(out.Context())
+	contentType := out.Header.Get("Content-Type")
+	shouldDumpBody := ShouldDumpBody(contentType)
+
+	dumpBytesOut, err := httputil.DumpRequestOut(out, shouldDumpBody)
+	if err != nil {
+		logger.Debugf("failed to dump request out, err: %v", err)
+		return
+	}
+
+	dumpString := string(dumpBytesOut)
+	if shouldDumpBody && isMultipartFormData(contentType) {
+		sanitized, err := sanitizeMultipartDump(dumpBytesOut, contentType)
+		if err != nil {
+			logger.Warnf("failed to sanitize multipart request body, err: %v", err)
+			dumpString = "(multipart body sanitized failed)"
+		} else if sanitized != "" {
+			dumpString = sanitized
+		}
+	}
+
+	if shouldDumpBody {
+		logger.Debugf("dump proxy request out:\n%s", dumpString)
+	} else {
+		logger.Debugf("dump proxy request out (body omitted due to binary content-type: %s):\n%s", contentType, dumpString)
+	}
+
+	// save to sink
+	audithelper.Note(out.Context(), "actual_request_body", dumpString)
+	audithelper.Note(out.Context(), "actual_request_url", out.URL.String())
+}

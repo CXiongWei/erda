@@ -21,12 +21,19 @@ import (
 	"github.com/erda-project/erda-proto-go/apps/aiproxy/session/pb"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/audit"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/client"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/client_mcp_relation"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/client_model_relation"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/client_token"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/i18n"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/mcp_server"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/mcp_server_config_instance"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/mcp_server_template"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/model"
-	"github.com/erda-project/erda/internal/apps/ai-proxy/models/model_provider"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/policy_group"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/prompt"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/service_provider"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/session"
+	usage_token "github.com/erda-project/erda/internal/apps/ai-proxy/models/usage/token"
 )
 
 var (
@@ -57,7 +64,7 @@ type DAO interface {
 	Q() *gorm.DB
 	Tx() *gorm.DB
 
-	ModelProviderClient() *model_provider.DBClient
+	ServiceProviderClient() *service_provider.DBClient
 	ClientClient() *client.DBClient
 	ModelClient() *model.DBClient
 	ClientModelRelationClient() *client_model_relation.DBClient
@@ -65,6 +72,13 @@ type DAO interface {
 	SessionClient() *session.DBClient
 	ClientTokenClient() *client_token.DBClient
 	AuditClient() *audit.DBClient
+	MCPServerClient() *mcp_server.DBClient
+	I18nClient() *i18n.DBClient
+	ClientMCPRelationClient() *client_mcp_relation.DBClient
+	TokenUsageClient() *usage_token.DBClient
+	MCPServerTemplateClient() *mcp_server_template.DBClient
+	MCPServerConfigInstanceClient() *mcp_server_config_instance.DBClient
+	PolicyGroupClient() *policy_group.DBClient
 }
 
 type provider struct {
@@ -83,8 +97,8 @@ func (p *provider) Tx() *gorm.DB {
 	return p.DB.Session(&gorm.Session{})
 }
 
-func (p *provider) ModelProviderClient() *model_provider.DBClient {
-	return &model_provider.DBClient{DB: p.DB}
+func (p *provider) ServiceProviderClient() *service_provider.DBClient {
+	return &service_provider.DBClient{DB: p.DB}
 }
 
 func (p *provider) ClientClient() *client.DBClient {
@@ -113,4 +127,32 @@ func (p *provider) ClientTokenClient() *client_token.DBClient {
 
 func (p *provider) AuditClient() *audit.DBClient {
 	return &audit.DBClient{DB: p.DB}
+}
+
+func (p *provider) MCPServerClient() *mcp_server.DBClient {
+	return &mcp_server.DBClient{DB: p.DB}
+}
+
+func (p *provider) I18nClient() *i18n.DBClient {
+	return &i18n.DBClient{DB: p.DB}
+}
+
+func (p *provider) ClientMCPRelationClient() *client_mcp_relation.DBClient {
+	return &client_mcp_relation.DBClient{DB: p.DB}
+}
+
+func (p *provider) TokenUsageClient() *usage_token.DBClient {
+	return &usage_token.DBClient{DB: p.DB}
+}
+
+func (p *provider) MCPServerTemplateClient() *mcp_server_template.DBClient {
+	return mcp_server_template.NewDBClient(p.DB)
+}
+
+func (p *provider) MCPServerConfigInstanceClient() *mcp_server_config_instance.DBClient {
+	return mcp_server_config_instance.NewDBClient(p.DB)
+}
+
+func (p *provider) PolicyGroupClient() *policy_group.DBClient {
+	return &policy_group.DBClient{DB: p.DB}
 }

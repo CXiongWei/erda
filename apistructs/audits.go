@@ -182,6 +182,7 @@ const (
 	RedeployRuntimeTemplate TemplateName = "redeployRuntime"
 	RollbackRuntimeTemplate TemplateName = "rollbackRuntime"
 	DeployRuntimeTemplate   TemplateName = "deployRuntime"
+	KillPodTemplate         TemplateName = "killPod"
 	CreateAndApplyHPARule   TemplateName = "createAndApplyHPARule"
 	ApplyOrCancelHPARule    TemplateName = "applyOrCancelHPARule"
 	UpdateHPARule           TemplateName = "updateHPARule"
@@ -283,6 +284,8 @@ const (
 	CreateOrgAnalyzerRule TemplateName = "createOrgAnalyzerRule"
 	UpdateOrgAnalyzerRule TemplateName = "updateOrgAnalyzerRule"
 	DeleteOrgAnalyzerRule TemplateName = "deleteOrgAnalyzerRule"
+
+	ExecuteTerminalCommand TemplateName = "executeTerminalCommand"
 )
 
 // AuditTemplateMap 解析前端审计模版全家桶

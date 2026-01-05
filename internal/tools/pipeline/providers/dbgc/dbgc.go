@@ -28,7 +28,6 @@ import (
 	basepb "github.com/erda-project/erda-proto-go/core/pipeline/base/pb"
 	"github.com/erda-project/erda-proto-go/core/pipeline/pipeline/pb"
 	"github.com/erda-project/erda/apistructs"
-	"github.com/erda-project/erda/internal/tools/pipeline/conf"
 	"github.com/erda-project/erda/internal/tools/pipeline/providers/dbgc/db"
 	"github.com/erda-project/erda/internal/tools/pipeline/providers/reconciler/rutil"
 	"github.com/erda-project/erda/internal/tools/pipeline/spec"
@@ -92,6 +91,10 @@ func (p *provider) doPipelineDatabaseGC(ctx context.Context, req *pb.PipelinePag
 }
 
 func needArchive(p spec.Pipeline) bool {
+	// ensure gc filed is not none
+	if p.Extra.GC.DatabaseGC == nil {
+		return true
+	}
 	if p.Status == apistructs.PipelineStatusAnalyzed {
 		if *p.Extra.GC.DatabaseGC.Analyzed.NeedArchive != false {
 			return *p.Extra.GC.DatabaseGC.Analyzed.NeedArchive
@@ -110,7 +113,7 @@ func (p *provider) doAnalyzedPipelineDatabaseGC(ctx context.Context, isSnippetPi
 	req.Status = []string{apistructs.PipelineStatusAnalyzed.String()}
 	req.IncludeSnippet = isSnippetPipeline
 	req.AscCols = []string{"id"}
-	req.EndTimeCreated = timestamppb.New(time.Now().Add(-time.Second * time.Duration(conf.AnalyzedPipelineDefaultDatabaseGCTTLSec())))
+	req.EndTimeCreated = timestamppb.New(time.Now().Add(-p.Cfg.AnalyzedPipelineDefaultDatabaseGCTTLDuration))
 	req.PageSize = 100
 	req.LargePageSize = true
 	req.PageNum = 1
@@ -132,7 +135,7 @@ func (p *provider) doNotAnalyzedPipelineDatabaseGC(ctx context.Context, isSnippe
 	req.NotStatus = []string{apistructs.PipelineStatusAnalyzed.String()}
 	req.IncludeSnippet = isSnippetPipeline
 	req.AscCols = []string{"id"}
-	req.EndTimeCreated = timestamppb.New(time.Now().Add(-time.Second * time.Duration(conf.FinishedPipelineDefaultDatabaseGCTTLSec())))
+	req.EndTimeCreated = timestamppb.New(time.Now().Add(-p.Cfg.FinishedPipelineDefaultDatabaseGCTTLDuration))
 	req.PageSize = 100
 	req.LargePageSize = true
 	req.PageNum = 1
@@ -203,6 +206,12 @@ func (p *provider) WaitDBGC(pipelineID uint64, ttl uint64, needArchive bool) {
 }
 
 func (p *provider) DoDBGC(pipeline *spec.Pipeline, gcOption apistructs.PipelineGCDBOption) error {
+	defer func() {
+		r := recover()
+		if r != nil {
+			p.Log.Errorf("dbgc recover from panic, pipeline_id: %d, err: %v", pipeline.PipelineID, r)
+		}
+	}()
 	if gcOption.NeedArchive {
 		// 归档
 		_, err := p.dbClient.ArchivePipeline(pipeline.ID)

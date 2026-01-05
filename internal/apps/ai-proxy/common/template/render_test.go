@@ -1,0 +1,506 @@
+// Copyright (c) 2021 Terminus, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package template
+
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/erda-project/erda-proto-go/apps/aiproxy/template/pb"
+)
+
+const testTemplateDesc = "test-template-desc"
+
+func strPtr(v string) *string {
+	return &v
+}
+
+func TestFindAndReplacePlaceholders(t *testing.T) {
+	t.Run("successfully replaces placeholders", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"service": map[string]interface{}{
+				"apiKey": "${@template.placeholders.api-key}",
+				"name":   "static-name",
+			},
+			"endpoints": []interface{}{
+				"${@template.placeholders.endpoint}",
+				"constant",
+				map[string]interface{}{
+					"token": "${@template.placeholders.token}",
+				},
+			},
+		}
+
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "api-key", Type: "string", Required: true},
+			{Name: "endpoint", Type: "string"},
+			{Name: "token", Type: "string", Required: true},
+		}
+
+		rendered, err := findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{
+			"api-key":  "1234",
+			"endpoint": "https://example.com",
+			"token":    "abcd",
+		})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+
+		expected := map[string]interface{}{
+			"service": map[string]interface{}{
+				"apiKey": "1234",
+				"name":   "static-name",
+			},
+			"endpoints": []interface{}{
+				"https://example.com",
+				"constant",
+				map[string]interface{}{
+					"token": "abcd",
+				},
+			},
+		}
+
+		require.Equal(t, expected, actual)
+	})
+
+	t.Run("missing placeholder value returns error", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"apiKey": "${@template.placeholders.missing}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "missing", Required: true},
+		}
+
+		_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `missing value for placeholder "missing"`)
+	})
+
+	t.Run("missing placeholder inside slice returns error", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"endpoints": []interface{}{
+				"${@template.placeholders.endpoint}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "endpoint", Required: true},
+		}
+
+		_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), `missing value for placeholder "endpoint"`)
+	})
+
+	t.Run("invalid placeholder format returns error", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"apiKey": "${@template.placeholders.}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, nil, cfgJSON, map[string]string{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid placeholder format")
+	})
+
+	t.Run("uses default value when provided", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"host": "${@template.placeholders.host}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{
+				Name:    "host",
+				Default: strPtr("terminus.example.com"),
+			},
+		}
+
+		rendered, err := findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+
+		require.Equal(t, "terminus.example.com", actual["metadata"].(map[string]interface{})["host"])
+	})
+
+	t.Run("replaces template desc placeholder", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"desc": "${@template.desc}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		rendered, err := findAndReplacePlaceholders("test-template", "awesome template desc", nil, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "awesome template desc", actual["desc"])
+	})
+
+	t.Run("placeholder without default should error", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"secret": map[string]interface{}{
+				"anotherApiKey": "${@template.placeholders.another-api-key}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "another-api-key"},
+		}
+
+		_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "missing value for placeholder \"another-api-key\"")
+	})
+
+	t.Run("placeholder with explicit empty default renders empty string", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"secret": map[string]interface{}{
+				"anotherApiKey": "${@template.placeholders.another-api-key}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "another-api-key", Default: strPtr("")},
+		}
+
+		rendered, err := findAndReplacePlaceholders("test-template-empty-default", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		secret := actual["secret"].(map[string]interface{})
+		require.Equal(t, "", secret["anotherApiKey"])
+	})
+
+	t.Run("placeholder accepts explicit empty string value", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"secret": map[string]interface{}{
+				"token": "${@template.placeholders.token}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{Name: "token", Type: "string"},
+		}
+
+		rendered, err := findAndReplacePlaceholders("test-template-empty-input", testTemplateDesc, defs, cfgJSON, map[string]string{
+			"token": "",
+		})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		secret := actual["secret"].(map[string]interface{})
+		require.Equal(t, "", secret["token"])
+	})
+
+	t.Run("object placeholder default string converts to map", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"public": map[string]interface{}{
+					"context": "${@template.placeholders.context}",
+				},
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{
+				Name:    "context",
+				Type:    "object",
+				Default: strPtr(`{"context_length": 131072, "max_completion_tokens": 16384, "max_prompt_tokens": 129024}`),
+			},
+		}
+
+		rendered, err := findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+
+		context, ok := actual["metadata"].(map[string]interface{})["public"].(map[string]interface{})["context"].(map[string]interface{})
+		require.True(t, ok)
+		require.Equal(t, float64(131072), context["context_length"])
+		require.Equal(t, float64(16384), context["max_completion_tokens"])
+		require.Equal(t, float64(129024), context["max_prompt_tokens"])
+	})
+
+	t.Run("object placeholder provided string converts to map", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"context": "${@template.placeholders.context}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{
+				Name: "context",
+				Type: "object",
+			},
+		}
+
+		value := `{"context_length": 10, "max_completion_tokens": 20, "max_prompt_tokens": 30}`
+		rendered, err := findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{
+			"context": value,
+		})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		context := actual["context"].(map[string]interface{})
+		require.Equal(t, float64(10), context["context_length"])
+		require.Equal(t, float64(20), context["max_completion_tokens"])
+		require.Equal(t, float64(30), context["max_prompt_tokens"])
+	})
+
+	t.Run("object placeholder invalid json returns error", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"context": "${@template.placeholders.context}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{
+				Name: "context",
+				Type: "object",
+			},
+		}
+
+		_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{
+			"context": "not-json",
+		})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid object value for placeholder \"context\"")
+	})
+
+	t.Run("placeholder default referencing template name resolves", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"model_name": "${@template.placeholders.target_model_name}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		defs := []*pb.Placeholder{
+			{
+				Name:    "target_model_name",
+				Type:    "string",
+				Default: strPtr("${@template.name}"),
+			},
+		}
+
+		rendered, err := findAndReplacePlaceholders("gpt-4o", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "gpt-4o", actual["model_name"])
+	})
+
+	t.Run("resolves template name placeholder", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"name": "${@template.name}",
+			},
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		rendered, err := findAndReplacePlaceholders("template-foo", testTemplateDesc, nil, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "template-foo", actual["metadata"].(map[string]interface{})["name"])
+	})
+
+	t.Run("mapping applies service provider specific value", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"model_name": "${@template.placeholders.target_model_name}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		mapping := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"default": structpb.NewStringValue("${@template.name}"),
+				"by": structpb.NewStructValue(&structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"service_provider_type": structpb.NewStructValue(&structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"aws-bedrock": structpb.NewStringValue("us.anthropic.claude-opus-4-1-20250805-v1:0"),
+							},
+						}),
+					},
+				}),
+			},
+		}
+
+		defs := []*pb.Placeholder{
+			{
+				Name:    "target_model_name",
+				Type:    "string",
+				Default: strPtr("should-not-use"),
+				Mapping: mapping,
+			},
+		}
+
+		// provider specific mapping
+		rendered, err := findAndReplacePlaceholders("claude-opus-4.1", testTemplateDesc, defs, cfgJSON, map[string]string{
+			ServiceProviderTypeParamKey: "aws-bedrock",
+		})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "us.anthropic.claude-opus-4-1-20250805-v1:0", actual["model_name"])
+
+		// fallback to mapping default when provider does not match
+		rendered, err = findAndReplacePlaceholders("claude-opus-4.1", testTemplateDesc, defs, cfgJSON, map[string]string{
+			ServiceProviderTypeParamKey: "volcengine-ark",
+		})
+		require.NoError(t, err)
+		actual = map[string]interface{}{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "claude-opus-4.1", actual["model_name"])
+
+		// fallback to mapping default when provider context missing
+		rendered, err = findAndReplacePlaceholders("claude-opus-4.1", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+		actual = map[string]interface{}{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "claude-opus-4.1", actual["model_name"])
+	})
+
+	t.Run("mapping default overrides placeholder default", func(t *testing.T) {
+		cfg := map[string]interface{}{
+			"model_name": "${@template.placeholders.target_model_name}",
+		}
+		cfgJSON, err := json.Marshal(cfg)
+		require.NoError(t, err)
+
+		mapping := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"default": structpb.NewStringValue("mapping-default"),
+			},
+		}
+
+		defs := []*pb.Placeholder{
+			{
+				Name:    "target_model_name",
+				Type:    "string",
+				Default: strPtr("placeholder-default"),
+				Mapping: mapping,
+			},
+		}
+
+		rendered, err := findAndReplacePlaceholders("sample-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+		require.NoError(t, err)
+
+		var actual map[string]interface{}
+		require.NoError(t, json.Unmarshal(rendered, &actual))
+		require.Equal(t, "mapping-default", actual["model_name"])
+	})
+}
+
+func TestEmbeddedTemplatePlaceholderMustError(t *testing.T) {
+	cfg := map[string]interface{}{
+		"path": "/v1/projects/${@template.placeholders.opt}/endpoints",
+	}
+	cfgJSON, err := json.Marshal(cfg)
+	require.NoError(t, err)
+
+	defs := []*pb.Placeholder{
+		{Name: "opt", Type: "string"},
+	}
+
+	_, err = findAndReplacePlaceholders("test-template", testTemplateDesc, defs, cfgJSON, map[string]string{})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `missing value for placeholder "opt"`)
+}
+
+func TestFindAndReplacePlaceholders_GoogleVertexAI_APIStyleConfig(t *testing.T) {
+	// define minimal placeholder definitions that cover this case
+	defs := []*pb.Placeholder{
+		{Name: "service-account-key-file-content", Type: "string", Required: true},
+		{Name: "location", Type: "string", Default: strPtr("global")},
+	}
+
+	// inline the apiStyleConfig snippet used by POST:/v1/chat/completions
+	conf := map[string]interface{}{
+		"headers": map[string]interface{}{
+			"Authorization": []interface{}{
+				"set",
+				"Bearer ${@provider.metadata.secret.access-token}",
+			},
+		},
+		"host": "${@provider.metadata.public.host}",
+		"path": []interface{}{
+			"replace",
+			"/v1",
+			"/v1/projects/${@provider.metadata.public.gcp-project-id}/locations/${@template.placeholders.location}/endpoints/openapi",
+		},
+		"queryParams": map[string]interface{}{},
+		"scheme":      "${@provider.metadata.public.scheme}",
+	}
+
+	cfgJSON, err := json.Marshal(conf)
+	require.NoError(t, err)
+
+	rendered, err := findAndReplacePlaceholders("google-vertex-ai", "Google Vertex AI", defs, cfgJSON, map[string]string{})
+	require.NoError(t, err)
+
+	var out map[string]interface{}
+	require.NoError(t, json.Unmarshal(rendered, &out))
+
+	// 1) header Authorization still keeps provider placeholder
+	hdrs := out["headers"].(map[string]interface{})
+	auth := hdrs["Authorization"].([]interface{})[1].(string)
+	require.Contains(t, auth, "${@provider.metadata.secret.access-token}")
+
+	// 2) path third element renders template placeholder to global while provider placeholders stay untouched
+	path := out["path"].([]interface{})
+	require.Len(t, path, 3)
+	p := path[2].(string)
+	require.Contains(t, p, "/locations/global/")
+	require.Contains(t, p, "${@provider.metadata.public.gcp-project-id}")
+}

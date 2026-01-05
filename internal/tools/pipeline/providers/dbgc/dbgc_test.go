@@ -30,11 +30,11 @@ import (
 	"github.com/erda-project/erda/apistructs"
 	"github.com/erda-project/erda/internal/tools/pipeline/dbclient"
 	"github.com/erda-project/erda/internal/tools/pipeline/providers/dbgc/db"
+	"github.com/erda-project/erda/internal/tools/pipeline/providers/dbgc/dbgcconfig"
 	"github.com/erda-project/erda/internal/tools/pipeline/spec"
 )
 
 func TestReconciler_doPipelineDatabaseGC(t *testing.T) {
-
 	var pipelines = []spec.Pipeline{
 		{
 			PipelineBase: spec.PipelineBase{ID: 1, Status: apistructs.PipelineStatusAnalyzed},
@@ -51,6 +51,12 @@ func TestReconciler_doPipelineDatabaseGC(t *testing.T) {
 						},
 					},
 				},
+			}},
+		},
+		{
+			PipelineBase: spec.PipelineBase{ID: 1, Status: apistructs.PipelineStatusAnalyzed},
+			PipelineExtra: spec.PipelineExtra{Extra: spec.PipelineExtraInfo{
+				GC: basepb.PipelineGC{},
 			}},
 		},
 		{
@@ -169,7 +175,7 @@ func TestPipelineDatabaseGC(t *testing.T) {
 	})
 	defer pm1.Unpatch()
 	r.dbClient = &db.Client{Client: *DB}
-	r.Cfg = &config{
+	r.Cfg = &dbgcconfig.Config{
 		PipelineDBGCDuration: 3 * time.Second,
 	}
 	r.Log = logrusx.New()
@@ -228,5 +234,14 @@ func TestReconciler_doPipelineDatabaseGC1(t *testing.T) {
 		defer patch1.Unpatch()
 
 		r.doPipelineDatabaseGC(context.Background(), &pipelinepb.PipelinePagingRequest{PageNum: 1})
+	})
+}
+
+func TestDoDBGC(t *testing.T) {
+	p := provider{}
+	pipeline := &spec.Pipeline{}
+	needArchive := true
+	assert.Panics(t, func() {
+		p.DoDBGC(pipeline, apistructs.PipelineGCDBOption{NeedArchive: needArchive})
 	})
 }

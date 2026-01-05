@@ -1,0 +1,62 @@
+{
+  "openai-compatible": {
+    "placeholders": [
+      {
+        "name": "api-key",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "another-api-key",
+        "type": "string",
+        "default": "",
+        "required": false
+      },
+      {
+        "name": "host",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "scheme",
+        "type": "string",
+        "required": true
+      },
+      {
+        "name": "location",
+        "type": "string",
+        "default": "",
+        "required": false
+      }
+    ],
+    "desc": "OpenAI-Style API Compatible",
+    "config": {
+      "type": "${@template.name}",
+      "desc": "${@template.desc}",
+      "apiKey": "${@template.placeholders.api-key}",
+      "metadata": {
+        "public": {
+          "api": {
+            "apiStyle": "openai-compatible",
+            "apiStyleConfigs": {
+              "*:*": {
+                "headers": {
+                  "Authorization": [
+                    "Set",
+                    "Bearer ${@provider.apiKey}"
+                  ]
+                },
+                "host": "${@template.placeholders.host}",
+                "scheme": "${@template.placeholders.scheme}"
+              }
+            }
+          },
+          "location": "${@template.placeholders.location}"
+        },
+        "secret": {
+          "anotherApiKey": "${@template.placeholders.another-api-key}"
+        }
+      }
+    }
+  }
+}

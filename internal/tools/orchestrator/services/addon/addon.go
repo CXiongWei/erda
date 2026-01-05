@@ -62,9 +62,10 @@ import (
 const ErdaEncryptedValue string = "ERDA_ENCRYPTED"
 
 const (
-	ConfigCenterAddon   = "config-center"
-	RegisterCenterAddon = "registercenter"
-	NacosAddon          = "nacos"
+	ConfigCenterAddon    = "config-center"
+	RegisterCenterAddon  = "registercenter"
+	TerminusZkProxyAddon = "terminus-zkproxy"
+	NacosAddon           = "nacos"
 )
 
 var (
@@ -319,6 +320,37 @@ func (a *Addon) BatchCreate(req *apistructs.AddonCreateRequest) error {
 	for _, v := range *existBuilds {
 		existBuildMap[strutil.Concat(v.RuntimeID, v.AddonName, v.InstanceName)] = v
 	}
+
+	var hasRegister, hasConfig, isZKProxy bool
+	for i, addon := range req.Addons {
+		if addon.Type == TerminusZkProxyAddon {
+			hasRegister = true
+			isZKProxy = true
+			continue
+		}
+		if addon.Type == RegisterCenterAddon {
+			hasRegister = true
+			err = a.injectVersion(&req.Addons[i])
+			if err != nil {
+				return errors.Wrapf(err, "inject version to [%s] error ", addon.Type)
+			}
+		}
+		if addon.Type == ConfigCenterAddon {
+			hasConfig = true
+		}
+	}
+
+	if hasRegister && !hasConfig && !isZKProxy {
+		err = a.appendAddon(req, ConfigCenterAddon, apistructs.AddonBasic)
+	} else if !hasRegister && hasConfig {
+		err = a.appendAddon(req, RegisterCenterAddon, apistructs.AddonBasic)
+	}
+
+	if err != nil {
+		logrus.Errorf("append addon error: %s", err)
+		return err
+	}
+
 	// 找出新增 addons，添加至 prebuild
 	addonPrebuildList := make([]dbclient.AddonPrebuild, 0, len(req.Addons)) // 新增 addons
 	newPrebuildList := make([]dbclient.AddonPrebuild, 0, len(req.Addons))   // 新 addons 列表
@@ -395,6 +427,34 @@ func (a *Addon) BatchCreate(req *apistructs.AddonCreateRequest) error {
 	if err := a.deployAddons(req, deploys); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (a *Addon) appendAddon(req *apistructs.AddonCreateRequest, addonName, plan string) error {
+	versionMap, err := GetCache().Get(addonName)
+	if err != nil {
+		return fmt.Errorf("can't get addon [%s] from cache, %v", addonName, err)
+	}
+	addons, ok := versionMap.(*VersionMap)
+	if !ok {
+		return fmt.Errorf("can't convert to VersionMap")
+	}
+	defaultAddon, ok := addons.GetDefault()
+	if !ok {
+		return fmt.Errorf("there are no default addons [%s]", addonName)
+	}
+
+	req.Addons = append(req.Addons, apistructs.AddonCreateItem{
+		Name:    defaultAddon.Name,
+		Type:    addonName,
+		Plan:    plan,
+		Configs: make(map[string]string),
+		Options: map[string]string{
+			"version": defaultAddon.Version,
+		},
+		Actions: make(map[string]string),
+	})
+
 	return nil
 }
 
@@ -2579,13 +2639,25 @@ func (a *Addon) ListCustomAddon() (*[]map[string]interface{}, error) {
 	basic := locale.Get("basicPlan")
 	professional := locale.Get("professionalPlan")
 
-	createableAddons := []string{"api-gateway", "mysql", "canal", "monitor"}
-	createableAddonVersion := map[string]string{"api-gateway": "3.0.0", "mysql": "5.7.29", "canal": "1.1.0", "monitor": "3.6"}
+	createableAddons := []string{
+		apistructs.AddonApiGateway,
+		apistructs.AddonMySQL,
+		apistructs.AddonMonitor,
+		apistructs.AddonCanal,
+		apistructs.AddonRegisterCenter,
+		apistructs.AddonNewConfigCenter,
+	}
+	// if these addon-type is `custom` and they can't be deployed by user, skip it!
+	unCreateAbleAddons := []string{
+		apistructs.AddonMSENacos, // mse-nacos only can be deployed by `config-center` or `register-center`
+	}
 	createableAddonPlan := map[string][]map[string]string{
-		"api-gateway": {{"label": basic, "value": "api-gateway:basic"}},
-		"mysql":       {{"label": basic, "value": "mysql:basic"}},
-		"canal":       {{"label": basic, "value": "canal:basic"}},
-		"monitor":     {{"label": professional, "value": "monitor:professional"}},
+		apistructs.AddonApiGateway:      {{"label": basic, "value": "api-gateway:basic"}},
+		apistructs.AddonMySQL:           {{"label": basic, "value": "mysql:basic"}},
+		apistructs.AddonCanal:           {{"label": basic, "value": "canal:basic"}},
+		apistructs.AddonMonitor:         {{"label": professional, "value": "monitor:professional"}},
+		apistructs.AddonRegisterCenter:  {{"label": basic, "value": "registercenter:basic"}},
+		apistructs.AddonNewConfigCenter: {{"label": basic, "value": "config-center:basic"}},
 	}
 
 	// 构建请求参数，请求extension
@@ -2599,23 +2671,25 @@ func (a *Addon) ListCustomAddon() (*[]map[string]interface{}, error) {
 	}
 	extensionResult := make([]map[string]interface{}, 0, len(extensions))
 	for _, item := range extensions {
-		if item.Category != apistructs.AddonCustomCategory && !strutil.Exist(createableAddons, item.Name) {
+		if (item.Category != apistructs.AddonCustomCategory && !strutil.Exist(createableAddons, item.Name)) || strutil.Exist(unCreateAbleAddons, item.Name) {
 			continue
 		}
-		version := createableAddonVersion[item.Name]
-		if version == "" {
-			version = "1.0.0"
-		}
-		itemSpecResult, err := a.bdl.GetExtensionVersion(apistructs.ExtensionVersionGetRequest{
-			Name:    item.Name,
-			Version: version,
-		})
+
+		versionMap, err := GetCache().Get(item.Name)
 		if err != nil {
-			logrus.Errorf("custom request fail, addon name: %v", item.Name)
-			continue
+			return nil, fmt.Errorf("can't get addon [%s] from cache, %v", item.Name, err)
 		}
+		addons, ok := versionMap.(*VersionMap)
+		if !ok {
+			return nil, fmt.Errorf("can't convert to VersionMap")
+		}
+		defaultAddon, ok := addons.GetDefault()
+		if !ok {
+			return nil, fmt.Errorf("there are no default addons [%s]", item.Name)
+		}
+
 		// spec.yml强制转换为string类型
-		addonSpecBytes, err := json.Marshal(itemSpecResult.Spec)
+		addonSpecBytes, err := json.Marshal(defaultAddon.Spec)
 		if err != nil {
 			logrus.Error("failed to parse addon spec")
 			continue
@@ -2632,18 +2706,17 @@ func (a *Addon) ListCustomAddon() (*[]map[string]interface{}, error) {
 		addonMap["addonName"] = item.Name
 		addonMap["vars"] = addonSpec.ConfigVars
 		switch item.Name {
-		case "mysql", "api-gateway", "monitor":
+		case apistructs.AddonMySQL, apistructs.AddonApiGateway, apistructs.AddonMonitor, apistructs.AddonRegisterCenter, apistructs.AddonNewConfigCenter:
 			addonMap["vars"] = nil
-		case "canal":
+		case apistructs.AddonCanal:
 			addonMap["vars"] = []string{
 				"canal.instance.master.address",
 				"canal.instance.dbUsername",
 				"canal.instance.dbPassword",
 				"mysql"}
-		case "custom":
+		case apistructs.AddonCustom:
 			addonMap["vars"] = []string{}
 		}
-		addonMap["version"] = version
 		addonMap["plan"] = createableAddonPlan[item.Name]
 		// TODO: disable tenant support, we shall refactor later
 		//switch item.Name {
@@ -2653,6 +2726,15 @@ func (a *Addon) ListCustomAddon() (*[]map[string]interface{}, error) {
 		//default:
 		//	addonMap["supportTenant"] = false
 		//}
+
+		versions := make([]string, 0, len(*addons))
+
+		for _, e := range addons.List() {
+			versions = append(versions, e.Version)
+		}
+
+		addonMap["versions"] = versions
+
 		extensionResult = append(extensionResult, addonMap)
 	}
 	return &extensionResult, nil
@@ -3069,61 +3151,26 @@ func (a *Addon) deployAddons(req *apistructs.AddonCreateRequest, deploys []dbcli
 		needDeployAddons = append(needDeployAddons, *createItem)
 	}
 
-	nacos, err := a.db.FindTmcInstanceByNameAndCLuster(NacosAddon, req.ClusterName)
+	if regVersion != "" {
+		confVersion = a.relateClusterAddonVersion(regVersion, RegisterCenterAddon, ConfigCenterAddon)
+	}
+
+	registerInstance, err := a.db.GetAddonInstanceByNameAndCluster(RegisterCenterAddon, req.ClusterName)
 	if err != nil {
+		logrus.Errorf("can't find register-center instance : %v", err)
 		return err
 	}
-	if len(nacos) > 0 {
-		reg, config, err := a.NacosVersionReference(nacos[0].Version)
-		if err != nil {
-			return errors.Wrapf(err, "unable to find the ConfigCenter and RegisterCenter corresponding to the current nacos version [%v].", nacos[0].Version)
-		}
-		if reg != "" && config != "" {
-			logrus.Infof("ConfigCenter [%v->%v] and RegisterCenter [%v->%v] to correlate with the corresponding nacos version [%v]",
-				confVersion, config,
-				regVersion, reg,
-				nacos[0].Version,
-			)
-			regVersion = reg
-			confVersion = config
-		}
-	} else if regVersion != "" {
-		regMap, err := GetCache().Get(RegisterCenterAddon)
-		if err != nil {
-			return errors.Wrapf(err, "can't get addon %v in cache", RegisterCenterAddon)
-		}
-
-		registers, err := toVersionMap(regMap)
-		if err != nil {
-			return err
-		}
-
-		version, ok := (*registers)[regVersion]
-		if !ok {
-			return fmt.Errorf("can't find %v version %v", RegisterCenterAddon, regVersion)
-		}
-
-		dice, err := a.parseAddonDice(version)
-		if err != nil {
-			return errors.Wrapf(err, "%v %v can't parse addon dice", RegisterCenterAddon, regVersion)
-		}
-
-		if nacos, ok := dice.AddOns[NacosAddon]; ok {
-			reg, config, err := a.NacosVersionReference(nacos.Options["version"])
-			if err != nil {
-				return errors.Wrapf(err, "unable to find the ConfigCenter and RegisterCenter corresponding to the current nacos version [%v].", nacos.Options["version"])
-			}
-			if reg != "" && config != "" {
-				logrus.Infof("ConfigCenter [%v->%v] and RegisterCenter [%v->%v] to correlate with the corresponding nacos version [%v]",
-					confVersion, config,
-					regVersion, reg,
-					nacos.Options["version"],
-				)
-				regVersion = reg
-				confVersion = config
-			}
-		}
-
+	configInstance, err := a.db.GetAddonInstanceByNameAndCluster(ConfigCenterAddon, req.ClusterName)
+	if err != nil {
+		logrus.Errorf("can't find config-center instance : %v", err)
+		return err
+	}
+	if registerInstance != nil {
+		regVersion = registerInstance.Version
+		confVersion = a.relateClusterAddonVersion(registerInstance.Version, RegisterCenterAddon, ConfigCenterAddon)
+	} else if configInstance != nil {
+		regVersion = a.relateClusterAddonVersion(configInstance.Version, ConfigCenterAddon, RegisterCenterAddon)
+		confVersion = configInstance.Version
 	}
 
 	for index, v := range deploys {
@@ -3131,8 +3178,12 @@ func (a *Addon) deployAddons(req *apistructs.AddonCreateRequest, deploys []dbcli
 		switch v.AddonName {
 		case RegisterCenterAddon:
 			createItem.Options["version"] = regVersion
+			logrus.Infof("register-center version: [%s]->[%s] in cluster: %s", createItem.Options["version"], regVersion, req.ClusterName)
+			a.pushLog(fmt.Sprintf("register-center version: [%s]->[%s] in cluster: %s", createItem.Options["version"], regVersion, req.ClusterName), &createItem)
 		case ConfigCenterAddon:
 			createItem.Options["version"] = confVersion
+			logrus.Infof("config-center version: [%s]->[%s] in cluster: %s", createItem.Options["version"], confVersion, req.ClusterName)
+			a.pushLog(fmt.Sprintf("config-center version: [%s]->[%s] in cluster: %s", createItem.Options["version"], confVersion, req.ClusterName), &createItem)
 		}
 		instanceRes, err := a.AttachAndCreate(&createItem)
 		if err != nil {
@@ -3149,56 +3200,30 @@ func (a *Addon) deployAddons(req *apistructs.AddonCreateRequest, deploys []dbcli
 	return nil
 }
 
-func (a *Addon) NacosVersionReference(version string) (regVersion, confVersion string, err error) {
-	regMap, err := GetCache().Get(RegisterCenterAddon)
-	if err != nil {
-		return "", "", err
+// one-to-one correspondence
+type convertVersionFunc func(string) string
+
+var addonVersionMapping = map[string]map[string]convertVersionFunc{
+	// register-center -> config-center
+	RegisterCenterAddon: {
+		ConfigCenterAddon: func(version string) string { return version },
+	},
+	// config-center -> register-center
+	ConfigCenterAddon: {
+		RegisterCenterAddon: func(version string) string { return version },
+	},
+}
+
+func (a *Addon) relateClusterAddonVersion(version string, sourceType, targetType string) string {
+	if addonVersionMapping == nil || addonVersionMapping[sourceType] == nil {
+		return version
 	}
-	confMap, err := GetCache().Get(ConfigCenterAddon)
-	if err != nil {
-		return "", "", err
+	if f, ok := addonVersionMapping[sourceType][targetType]; ok && f != nil {
+		targetVersion := f(version)
+		logrus.Infof("addon version mapping: [%s:%s]->[%s:%s]", sourceType, version, targetType, targetVersion)
+		return targetVersion
 	}
-	registers, err := toVersionMap(regMap)
-	if err != nil {
-		return "", "", err
-	}
-	configs, err := toVersionMap(confMap)
-	if err != nil {
-		return "", "", err
-	}
-	for _, r := range *registers {
-		dice, err := a.parseAddonDice(r)
-		if err != nil {
-			return "", "", err
-		}
-		if addOn, ok := dice.AddOns[NacosAddon]; ok && addOn.Options["version"] == version {
-			spec, err := a.parseAddonSpec(r)
-			if err != nil {
-				return "", "", err
-			}
-			if !spec.Deprecated {
-				regVersion = spec.Version
-				break
-			}
-		}
-	}
-	for _, c := range *configs {
-		dice, err := a.parseAddonDice(c)
-		if err != nil {
-			return "", "", err
-		}
-		if addOn, ok := dice.AddOns[NacosAddon]; ok && addOn.Options["version"] == version {
-			spec, err := a.parseAddonSpec(c)
-			if err != nil {
-				return "", "", err
-			}
-			if !spec.Deprecated {
-				confVersion = spec.Version
-				break
-			}
-		}
-	}
-	return
+	return version
 }
 
 // PrepareCheckProjectLastResource 计算项目预留资源，是否满足发布徐局
@@ -3915,4 +3940,29 @@ func (a *Addon) CheckDeployCondition(addonName, addonPlan, workspace string) (bo
 	//	}
 	//}
 	return true, nil
+}
+
+func (a *Addon) injectVersion(addon *apistructs.AddonCreateItem) error {
+	if addon.Options == nil {
+		addon.Options = make(map[string]string)
+	}
+	if v, ok := addon.Options["version"]; ok && v != "" {
+		return nil
+	}
+
+	versionMap, err := GetCache().Get(addon.Type)
+	if err != nil {
+		return fmt.Errorf("can't get addon [%s] from cache, %v", addon.Type, err)
+	}
+	addons, ok := versionMap.(*VersionMap)
+	if !ok {
+		return fmt.Errorf("can't convert to VersionMap")
+	}
+	defaultAddon, ok := addons.GetDefault()
+	if !ok {
+		return fmt.Errorf("there are no default addons [%s]", addon.Type)
+	}
+
+	addon.Options["version"] = defaultAddon.Version
+	return nil
 }

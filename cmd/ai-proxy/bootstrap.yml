@@ -4,21 +4,19 @@ gorilla-mux@ai:
 grpc-server@ai:
   addr: ":8082"
 
-erda.app.ai-proxy:
-  routes_refs:
-    - conf/routes/routes.yml
-    - conf/routes/assistant.yml
-    - conf/routes/file.yml
-    - conf/routes/openai_format.yml
-    - conf/routes/internal_apis.yml
+erda.app.reverse-proxy:
   log_level: ${LOG_LEVEL:info}
-  open_on_erda: ${OPEN_ON_ERDA:true} # 是否将 API 通过 Erda Openapi 暴露出来
+
+erda.app.ai-proxy:
+  log_level: ${LOG_LEVEL:info}
+  mcp_proxy_public_url: ${MCP_PROXY_PUBLIC_URL}
+  lb_state_store_type: ${LB_STATE_STORE_TYPE:memory} # memory / redis / etcd
+  lb_state_store_sticky_ttl: ${LB_STATE_STORE_STICKY_TTL:10m}
 
 gorm.v2:
   debug: ${MYSQL_DEBUG:false}
 
 erda.apps.ai-proxy.dao:
-erda.app.ai-proxy.metrics:
 
 # gRPC clients
 grpc-client@erda.core.openapi.dynamic_register:

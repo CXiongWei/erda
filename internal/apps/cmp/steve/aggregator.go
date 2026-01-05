@@ -59,15 +59,14 @@ type Aggregator struct {
 }
 
 // NewAggregator new an aggregator with steve servers for all current clusters
-func NewAggregator(ctx context.Context, bdl *bundle.Bundle, clusterSvc clusterpb.ClusterServiceServer, ttl time.Duration, size int) *Aggregator {
+func NewAggregator(ctx context.Context, bdl *bundle.Bundle, clusterSvc clusterpb.ClusterServiceServer, size int) *Aggregator {
 	a := &Aggregator{
 		Ctx:        ctx,
 		Bdl:        bdl,
 		clusterSvc: clusterSvc,
 	}
 
-	a.server = gcache.New(size).Expiration(ttl).LoaderFunc(a.loadFunc).LRU().Build()
-	a.init()
+	a.server = gcache.New(size).LoaderFunc(a.loadFunc).LRU().Build()
 	go a.watchClusters(ctx)
 	return a
 }
@@ -174,10 +173,6 @@ func (a *Aggregator) watchClusters(ctx context.Context) {
 					continue
 				}
 				exists[cluster.Name] = struct{}{}
-				if g, err := a.server.Get(cluster.Name); err == nil && g != nil {
-					continue
-				}
-				a.Add(cluster)
 			}
 
 			var readyCluster []string
@@ -190,7 +185,7 @@ func (a *Aggregator) watchClusters(ctx context.Context) {
 				}
 
 				if _, ok := exists[name.(string)]; ok {
-					return
+					continue
 				}
 				a.Delete(name.(string))
 			}
@@ -257,6 +252,7 @@ func (a *Aggregator) prepareSteveServer(clusterInfo *clusterpb.ClusterInfo) {
 	if err := a.createPredefinedResource(clusterInfo.Name); err != nil {
 		logrus.Infof("failed to create predefined resource for cluster %s, %v. Skip starting steve server",
 			clusterInfo.Name, err)
+		a.server.Remove(clusterInfo.Name)
 		return
 	}
 	logrus.Infof("starting steve server for cluster %s", clusterInfo.Name)

@@ -1877,6 +1877,17 @@
       "en": ""
     }
   },
+  "killPod": {
+    "desc": "删除 Pod",
+    "success": {
+      "zh": "在 [@workspace] 环境的应用 [@projectName](project) / [@appName](app) 中，成功删除了运行时 [@runtime] 的 Pod 实例 [@podName]",
+      "en": "Successfully deleted the Pod instance [@podName] of runtime [@runtime] in the [@projectName](project) / [@appName](app) app under the [@workspace] environment"
+    },
+    "fail": {
+      "zh": "",
+      "en": ""
+    }
+  },
   "archiveTestPlan": {
     "desc": "测试计划归档",
     "success": {
@@ -1979,6 +1990,13 @@
     "success": {
       "zh": "在 [@projectName](project) 项目中, 更新了测试空间 [@spaceName] 的状态, 由 [@from] 变成 [@to] ",
       "en": "Update auto test space [@spaceName] archiveStatus from [@from] to [@to] in project [@projectName](project)"
+    }
+  },
+  "executeTerminalCommand": {
+    "desc": "执行控制台命令",
+    "success": {
+      "zh": "在 [@pod](pod)/[@container](container) 中, 执行了控制台命令 [@command]",
+      "en": "Execute terminal command [@command] in [@pod](pod)/[@container](container)"
     }
   }
 }

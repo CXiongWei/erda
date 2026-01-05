@@ -111,6 +111,8 @@ grpc-client@erda.core.clustermanager.cluster:
 erda.core.clustermanager.cluster-client: { }
 
 ############# openapi
+openapi-settings:
+  session_expire: "${OPENAPI_SESSION_EXPIRE:120h}"
 openapi-ng:
 http-server@openapi:
   addr: ":9529"
@@ -162,8 +164,11 @@ openapi-auth-ory-kratos:
   ory_kratos_addr: "${ORY_KRATOS_ADDR:kratos-public}"
 openapi-auth-uc:
   _enable: ${UC_ENABLED:true}
+  platform_protocol: "${DICE_PROTOCOL:https}"
   weight: 100
   redirect_after_login: "${UI_PUBLIC_ADDR}"
+  platform_domain: "${UI_PUBLIC_ADDR}"
+  allowed_referrers: "${ALLOWED_REFERRERS}"
   client_id: "${UC_CLIENT_ID:dice}"
   uc_addr: "${UC_PUBLIC_ADDR}"
   uc_redirect_addrs: "${SELF_PUBLIC_ADDR}"
@@ -177,7 +182,7 @@ openapi-auth-password:
 openapi-over-permission-org-name:
   _enable: ${AUTH_OVER_PERMISSION:true}
   weight: 30
-  default_match_org: ["query:scope","query:scopeId"]
+  default_match_org: [ "query:scope","query:scopeId" ]
 openapi-over-permission-org-id:
   _enable: ${AUTH_OVER_PERMISSION:true}
 openapi-auth-token:
@@ -372,12 +377,10 @@ erda.dop.rule.action.dingtalkworknotice: { }
 
 ########### cmp
 cmp:
-  # steve cache time to live, default 10 min
-  cache_ttl: ${CMP_STEVE_CACHE_TTL:10m}
-  # steve cache total size (MB), default 64MB
+  # steve cache total size , default 64
   cache_size: ${CMP_STEVE_CACHE_SIZE:64}
 grpc-client@erda.core.monitor.metric:
-  addr: "${MONITOR_GRPC_ADDR:monitor:7080}"xwxxx
+  addr: "${MONITOR_GRPC_ADDR:monitor:7080}"
   block: false
 erda.core.monitor.metric-client: { }
 grpc-client@erda.core.monitor.alert:
@@ -415,6 +418,8 @@ etcd-election@project-management-report:
   root_path: "/project-management-report-election"
 etcd-election@efficiency-measure:
   root_path: "/efficiency-measure-election"
+etcd-election@autotest-testplan-provider:
+  root_path: "/autotest-testplan-election"
 cassandra:
   _enable: ${CASSANDRA_ENABLE:false}
   host: "${CASSANDRA_ADDR:localhost:9042}"
@@ -596,6 +601,7 @@ erda.msp.resource.deploy.handlers.apigateway:
     http_port: "${DICE_HTTP_PORT}"
     https_port: "${DICE_HTTPS_PORT}"
 erda.msp.resource.deploy.handlers.configcenter:
+erda.msp.resource.deploy.handlers.externalprovider:
 erda.msp.resource.deploy.handlers.etcd:
 erda.msp.resource.deploy.handlers.jvmprofiler:
 erda.msp.resource.deploy.handlers.loganalytics:

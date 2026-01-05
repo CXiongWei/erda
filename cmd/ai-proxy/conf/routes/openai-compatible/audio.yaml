@@ -1,0 +1,26 @@
+routes:
+  - path: /v1/audio/transcriptions
+    method: POST
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-audio
+        config:
+          maxAudioSize: 25MB
+          supportedAudioFileTypes: [ "flac", "mp3", "mp4", "mpeg", "mpga", "m4a", "ogg", "wav", "webm" ]
+          defaultOpenAIAudioModel: whisper-1
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+
+  - path: /v1/audio/speech
+    method: POST
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: openai-compatible-director
+      - name: qwen-tts-converter
+      - name: set-response-chunk-splitter
+    response_filters:
+      - name: qwen-tts-converter

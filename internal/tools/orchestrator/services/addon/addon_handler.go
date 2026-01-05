@@ -49,12 +49,15 @@ import (
 
 const (
 	AddonTypeDoseNoExist           = "AddonTypeDoseNoExist"
+	NoRegisterCenterFound          = "NoRegisterCenterFound"
 	AddonVersionDoseNoExist        = "AddonVersionDoseNoExist"
 	AddonDefaultVersionDoseNoExist = "AddonDefaultVersionDoseNoExist"
 	AddonPlanIllegal               = "AddonPlanIllegal"
 	AddonPlanNotSupport            = "AddonPlanNotSupport"
 	AddonDeprecated                = "AddonDeprecated"
 )
+
+const I18nClusterAddonRedeploy = "ClusterAddonRedeploy"
 
 // AttachAndCreate addon创建，runtime建立关系方法
 func (a *Addon) AttachAndCreate(params *apistructs.AddonHandlerCreateItem) (*apistructs.AddonInstanceRes, error) {
@@ -280,15 +283,12 @@ func (a *Addon) AddonDelete(req apistructs.AddonDirectDeleteRequest) error {
 	return nil
 }
 
-func (a *Addon) AddonCreate(req apistructs.AddonDirectCreateRequest) (string, error) {
-	if len(req.Addons) != 1 {
-		return "", fmt.Errorf("len(req.Addons) != 1")
-	}
-	baseAddons := []apistructs.AddonCreateItem{}
+func (a *Addon) AddonCreate(req apistructs.AddonDirectCreateRequest) ([]string, error) {
+	var baseAddons []apistructs.AddonCreateItem
 	for name, a := range req.Addons {
 		plan := strings.SplitN(a.Plan, ":", 2)
 		if len(plan) != 2 {
-			return "", errors.Errorf("addon plan information is not compliant")
+			return nil, errors.Errorf("addon plan information is not compliant")
 		}
 		baseAddons = append(baseAddons, apistructs.AddonCreateItem{
 			Name:    name,
@@ -297,30 +297,42 @@ func (a *Addon) AddonCreate(req apistructs.AddonDirectCreateRequest) (string, er
 			Options: a.Options,
 		})
 	}
-	addonItem := apistructs.AddonHandlerCreateItem{
-		InstanceName:  baseAddons[0].Name,
-		AddonName:     addonutil.TransAddonName(baseAddons[0].Type),
-		Plan:          baseAddons[0].Plan,
-		ClusterName:   req.ClusterName,
-		Workspace:     strutil.ToUpper(req.Workspace),
-		OrgID:         strconv.FormatUint(req.OrgID, 10),
-		ProjectID:     strconv.FormatUint(req.ProjectID, 10),
-		ApplicationID: strconv.FormatUint(req.ApplicationID, 10),
-		OperatorID:    req.Operator,
-		InsideAddon:   "N",
-		ShareScope:    req.ShareScope,
-		Options:       baseAddons[0].Options,
-	}
-	addonSpec, addonDice, err := a.GetAddonExtention(&addonItem)
-	if err != nil {
-		logrus.Errorf("failed to GetAddonExtention err: %v", err)
-		return "", err
-	}
 
-	if err := a.checkAddonDeployable(addonItem, addonSpec); err != nil {
-		return "", err
+	routingIds := make([]string, 0, len(baseAddons))
+
+	for i := range baseAddons {
+		addonItem := apistructs.AddonHandlerCreateItem{
+			InstanceName:  baseAddons[i].Name,
+			AddonName:     addonutil.TransAddonName(baseAddons[i].Type),
+			Plan:          baseAddons[i].Plan,
+			ClusterName:   req.ClusterName,
+			Workspace:     strutil.ToUpper(req.Workspace),
+			OrgID:         strconv.FormatUint(req.OrgID, 10),
+			ProjectID:     strconv.FormatUint(req.ProjectID, 10),
+			ApplicationID: strconv.FormatUint(req.ApplicationID, 10),
+			OperatorID:    req.Operator,
+			InsideAddon:   "N",
+			ShareScope:    req.ShareScope,
+			Options:       baseAddons[i].Options,
+		}
+		addonSpec, addonDice, err := a.GetAddonExtention(&addonItem)
+		if err != nil {
+			logrus.Errorf("failed to GetAddonExtention err: %v", err)
+			return nil, err
+		}
+
+		if err := a.checkAddonDeployable(addonItem, addonSpec); err != nil {
+			logrus.Errorf("%s", err)
+			return nil, err
+		}
+
+		id, err := a.addonCreateAux(addonSpec, addonDice, &addonItem)
+		if err != nil {
+			return nil, err
+		}
+		routingIds = append(routingIds, id)
 	}
-	return a.addonCreateAux(addonSpec, addonDice, &addonItem)
+	return routingIds, nil
 }
 
 // checkAddonDeployable 检查 addon 是否能部署
@@ -334,6 +346,15 @@ func (a *Addon) checkAddonDeployable(addon apistructs.AddonHandlerCreateItem, sp
 			return fmt.Errorf("[project(%s)/workspace(%s)] 已存在 microservice(%s), 无法再新建",
 				addon.ProjectID, addon.Workspace, addon.AddonName)
 		}
+		instance, err := a.db.GetAddonInstanceByNameAndCluster(addon.AddonName, addon.ClusterName)
+		if err != nil {
+			logrus.Errorf("%v", err)
+			return errors.New("failed to get addon instance from database")
+		}
+		if instance != nil && (addon.Options == nil || instance.Version != addon.Options["version"]) {
+			return errors.New(i18n.OrgSprintf(addon.OrgID, I18nClusterAddonRedeploy, addon.AddonName, instance.Version, addon.Options["version"]))
+		}
+		logrus.Infof("no deployed %s addon found", addon.AddonName)
 	}
 
 	switch strutil.ToLower(addon.AddonName) {
@@ -698,11 +719,6 @@ func (a *Addon) strategyAddon(params *apistructs.AddonHandlerCreateItem,
 		return nil, err
 	}
 	logrus.Infof("after buildRealCreate, param:  %+v", *params)
-
-	// canal不需要走策略，canal就是要一个给一个
-	if params.AddonName == apistructs.AddonCanal {
-		return nil, nil
-	}
 
 	// 根据tag查询addon实例信息
 	shareRoutingIns, err := a.getTagInstance(addonSpec, params)
@@ -1148,6 +1164,9 @@ func (a *Addon) basicAddonDeploy(addonIns *dbclient.AddonInstance, addonInsRouti
 		return err
 	}
 	logrus.Infof("sending addon creating request, request body: %+v", *addonCreateReq)
+
+	_, ok := addonCreateReq.DiceYml.Meta["USE_OPERATOR"]
+	a.pushLog(fmt.Sprintf("addon [%s:%s] will be deployed, use operator: %v", addonSpec.Name, addonSpec.Version, ok), params)
 
 	// 请求调度器
 	_, err = a.serviceGroupImpl.Create(*addonCreateReq)

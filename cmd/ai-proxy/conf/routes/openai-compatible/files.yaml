@@ -1,0 +1,56 @@
+# OpenAI Files API - https://platform.openai.com/docs/api-reference/files
+routes:
+  # Upload file
+  - path: /v1/files
+    method: POST
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-file
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+
+  # List files
+  - path: /v1/files
+    method: GET
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-file
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+
+  # Retrieve file
+  - path: /v1/files/{file_id}
+    method: GET
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-file
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+
+  # Delete file
+  - path: /v1/files/{file_id}
+    method: DELETE
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-file
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+
+  # Retrieve file content
+  - path: /v1/files/{file_id}/content
+    method: GET
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-file
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter

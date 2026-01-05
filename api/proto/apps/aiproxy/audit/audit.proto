@@ -10,11 +10,6 @@ import "github.com/envoyproxy/protoc-gen-validate/validate/validate.proto";
 import "common/http.proto";
 
 service AuditService {
-    rpc Get(AuditGetRequest) returns (Audit) {
-        option(google.api.http) = {
-            get: "/api/ai-proxy/audits/{auditId}"
-        };
-    }
     rpc Paging(AuditPagingRequest) returns (AuditPagingResponse) {
         option(google.api.http) = {
             get: "/api/ai-proxy/audits"
@@ -40,6 +35,7 @@ message Audit {
     string actualResponseBody = 14;
     string userAgent = 15;
     string xRequestId = 16;
+    string callId = 26;
 
     string clientId = 17;
     string modelId = 18;
@@ -62,6 +58,7 @@ message AuditCreateRequestWhenReceived {
     string requestBody = 3;
     string userAgent = 4;
     string xRequestId = 5;
+    string callId = 18;
 
     string requestContentType = 6;
     string requestHeader = 7;
@@ -79,82 +76,24 @@ message AuditCreateRequestWhenReceived {
     string bizSource = 17;
 }
 
-message AuditUpdateRequestAfterBasicContextParsed {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    string clientId = 2 [(validate.rules).string = {len: 36}];
-    string modelId = 3 [(validate.rules).string = {len: 36}];
-    string sessionId = 4 [(validate.rules).string = {ignore_empty: true, len: 36}];
-    string bizSource = 5;
-    string operationId = 6;
-
-    // parsed from client token
-    string dingtalkStaffId = 7;
-    string email = 8;
-    string identityJobNumber = 9;
-    string username = 10;
-    string identityPhoneNumber = 11;
-}
-
-message AuditUpdateRequestAfterSpecificContextParsed {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    string prompt = 2;
-
-    // chat info
-    string requestFunctionCallName = 3;
-
-    // audio info parsed from multipart/form-data request body
-    string audioFileName = 4;
-    string audioFileSize = 5;
-    string audioFileHeaders = 6;
-
-    // image info
-    string imageQuality = 7;
-    string imageSize = 8;
-    string imageStyle = 9;
-}
-
-message AuditUpdateRequestAfterLLMDirectorInvoke {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    string actualRequestBody = 2;
-    string actualRequestURL = 3;
-    string actualRequestHeader = 4;
-}
-
-message AuditUpdateRequestAfterLLMResponse {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    google.protobuf.Timestamp responseAt = 2; // first response
-    google.protobuf.Timestamp responseStreamDoneAt = 3;
-    int32 status = 4;
-    string actualResponseBody = 5;
-    string actualResponseHeader = 6;
-
-    string responseContentType = 7;
-}
-
-message AuditUpdateRequestAfterLLMDirectorResponse {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    string completion = 2;
-    string responseBody = 3;
-    string responseHeader = 4;
-    string responseFunctionCallName = 5;
-}
-
-message AuditUpdateRequestWhenFilterError {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-    string filterName = 2;
-    string filterError = 3;
-}
-
-message AuditGetRequest {
-    string auditId = 1 [(validate.rules).string = {len: 36}];
-}
-
 message AuditPagingRequest {
-    int64 pageNum = 1;
-    int64 pageSize = 2;
+    uint64 pageNum = 1;
+    uint64 pageSize = 2 [(validate.rules).uint64 = {ignore_empty: true, gte: 1, lte: 10}];
 
-    repeated string ids = 3 [(validate.rules).repeated.items.string = {len: 36}];
-    string source = 4;
+    string authKey = 3 [(validate.rules).string = {min_len: 32, max_len:36, ignore_empty: true}];
+    string xRequestId = 4 [(validate.rules).string = {min_len: 0, max_len: 64}];
+    string callId = 5 [(validate.rules).string = {len: 36, ignore_empty: true}];
+
+    string prompt = 6 [(validate.rules).string = {max_len: 512}];
+    string clientId = 7 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    string modelId = 8 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    string username = 9 [(validate.rules).string = {max_len: 128}];
+    string operationId = 10 [(validate.rules).string = {min_len: 4, max_len: 128, ignore_empty: true}];
+
+    // time range
+    // unix milliseconds, used for http query parsing convenience
+    uint64 timeRangeAfterMs = 11 [(validate.rules).uint64 = {ignore_empty: true, gte: 0}];
+    uint64 timeRangeBeforeMs = 12 [(validate.rules).uint64 = {ignore_empty: true, gte: 0}];
 }
 
 message AuditPagingResponse {

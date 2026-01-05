@@ -410,11 +410,16 @@ func updatePodAndInstance(dbclient *instanceinfo.Client, podlist *corev1.PodList
 			CpuRequest:      cpurequest,
 			CpuLimit:        cpulimit,
 		}
-		podsinfo, err := podr.ByUid(string(pod.UID)).Do()
-		if len(podsinfo) > 0 {
-			podinfo.ID = podsinfo[0].ID
+
+		podsInfo, err := podr.ByCluster(cluster).ByUid(string(pod.UID)).Do()
+		if err != nil {
+			return orgs, fmt.Errorf("query pod (cluster: %s) by uuid %s err, %+v",
+				cluster, string(pod.UID), err)
+		}
+		if len(podsInfo) > 0 {
+			podinfo.ID = podsInfo[0].ID
 			if delete {
-				if err := podw.Delete(podsinfo[0].ID); err != nil {
+				if err := podw.DeleteByPodUid(cluster, string(pod.UID)); err != nil {
 					return orgs, err
 				}
 			} else if err := podw.Update(podinfo); err != nil {
@@ -604,6 +609,7 @@ func updatePodAndInstance(dbclient *instanceinfo.Client, podlist *corev1.PodList
 						return orgs, err
 					}
 				}
+				logrus.Infof("latest instance id %v , others cleared by [prevContainerID]", instances[0].ID)
 			}
 		}
 		if currentContainerID != "" {
@@ -678,7 +684,10 @@ func updatePodAndInstance(dbclient *instanceinfo.Client, podlist *corev1.PodList
 						return orgs, err
 					}
 				}
+				logrus.Infof("latest instance id %v, others cleared by [currentContainerID]", instances[0].ID)
 			}
+		} else {
+			logrus.Infof("[currentContainerID] is empty, skip create or update")
 		}
 	}
 	return orgs, nil

@@ -1,0 +1,9 @@
+routes:
+  - path: /proxy/bedrock/model/{model}/{suffix}
+    method: POST
+    request_filters:
+      - name: rate-limit
+      - name: check-pass-through
+      - name: auth
+      - name: context
+      - name: pass-through-bedrock

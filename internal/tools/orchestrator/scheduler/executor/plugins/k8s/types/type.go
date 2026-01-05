@@ -17,10 +17,18 @@ package types
 import (
 	"regexp"
 
+	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/erda-project/erda/apistructs"
+)
+
+const (
+	MCPLabelPrefix             = "mcp.erda.cloud"
+	LabelMcpErdaCloudComponent = "mcp.erda.cloud/component"
+	LabelMcpErdaCloudScopeType = "mcp.erda.cloud/scope-type"
+	LabelMcpErdaCloudScopeId   = "mcp.erda.cloud/scope-id"
 )
 
 const (
@@ -39,6 +47,16 @@ const (
 	// default sa
 	DefaultServiceAccountName = "default"
 	DiceWorkSpace             = "DICE_WORKSPACE"
+
+	LabelDiceOrgId = "DICE_ORG_ID"
+)
+
+type ResourceUnitType string
+
+const (
+	CPUUnitMilli  ResourceUnitType = "m"
+	MemUnitMi     ResourceUnitType = "Mi"
+	StorageUnitMi ResourceUnitType = "Gi"
 )
 
 var EnvReg = regexp.MustCompile(`\$\{([^}]+?)\}`)
@@ -71,14 +89,20 @@ type (
 	}
 
 	Spec struct {
-		Template PodTemplateSpec `json:"template"`
+		Template        *PodTemplateSpec           `json:"template,omitempty"`
+		MinReadySeconds *int32                     `json:"minReadySeconds,omitempty"`
+		Strategy        *appsv1.DeploymentStrategy `json:"strategy,omitempty"`
 	}
 
 	PodTemplateSpec struct {
-		Spec PodSpec `json:"spec"`
+		Spec PodSpec `json:"spec,omitempty"`
 	}
 
 	PodSpec struct {
 		Containers []corev1.Container `json:"containers"`
 	}
 )
+
+type ScaledPatchStruct struct {
+	Spec kedav1alpha1.ScaledObjectSpec `json:"spec"`
+}

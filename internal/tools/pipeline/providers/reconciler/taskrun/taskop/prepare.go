@@ -297,9 +297,7 @@ func (pre *prepare) makeTaskRun() (needRetry bool, err error) {
 		task.Extra.Image = action.Image
 	}
 	// 将 action dice.yml 中声明的 envs 注入运行时
-	for k, v := range diceYmlJob.Envs {
-		task.Extra.PrivateEnvs[k] = v
-	}
+	setDiceYmlJobEnvs(task.Extra.PrivateEnvs, diceYmlJob.Envs)
 	// 将 action dice.yml 中声明的 labels 注入运行时
 	for k, v := range diceYmlJob.Labels {
 		task.Extra.Labels[k] = v
@@ -572,6 +570,16 @@ func existContinuePrivateEnv(privateEnvs map[string]string, key string) bool {
 	return false
 }
 
+func setDiceYmlJobEnvs(privateEnvs map[string]string, diceYmlJobEnvs map[string]string) {
+	for k, v := range diceYmlJobEnvs {
+		// diceymljob.env's priority is lower than action.params
+		if _, ok := privateEnvs[k]; ok {
+			continue
+		}
+		privateEnvs[k] = v
+	}
+}
+
 func handleAccessTokenExpiredIn(task *spec.PipelineTask) string {
 	if task.Extra.Timeout == -1 {
 		return "0"
@@ -735,38 +743,46 @@ func condition(task *spec.PipelineTask) bool {
 		return false
 	}
 
-	sign := expression.Reconcile(task.Extra.Action.If)
-	if sign.Err != nil {
-		task.Status = apistructs.PipelineStatusFailed
-		if sign.Err != nil {
-			task.Inspect.Errors = task.Inspect.Errors.AppendError(&taskerror.Error{
-				Msg: sign.Err.Error(),
-			})
-		}
+	// add final expression to metadata
+	task.Inspect.Metadata = append(task.Inspect.Metadata,
+		metadata.MetadataField{
+			Name:  "if expression",
+			Value: task.Extra.Action.If,
+		},
+	)
 
-		if sign.Msg != "" {
-			task.Inspect.Errors = task.Inspect.Errors.AppendError(&taskerror.Error{
-				Msg: sign.Msg,
-			})
-		}
+	sign := expression.Execute(task.Extra.Action.If)
+
+	if sign.Err != nil {
+		task.Status = apistructs.PipelineStatusAnalyzeFailed
+		task.Inspect.Errors = task.Inspect.Errors.AppendError(&taskerror.Error{
+			Code: sign.Err.Code,
+			Msg:  sign.Err.Msg,
+		})
+		addSkipTaskMeta(task, true)
 		return true
 	}
 
 	if sign.Sign == expression.TaskJumpOver {
 		task.Status = apistructs.PipelineStatusNoNeedBySystem
-		if sign.Err != nil {
-			task.Inspect.Errors = task.Inspect.Errors.AppendError(&taskerror.Error{
-				Msg: sign.Err.Error(),
-			})
-		}
-
-		if sign.Msg != "" {
-			task.Inspect.Errors = task.Inspect.Errors.AppendError(&taskerror.Error{
-				Msg: sign.Msg,
-			})
-		}
+		task.Inspect.Metadata = append(task.Inspect.Metadata,
+			metadata.MetadataField{
+				Name:  "if expression eval result",
+				Value: "false",
+			},
+		)
+		addSkipTaskMeta(task, true)
 		return true
 	}
 
 	return false
+}
+
+func addSkipTaskMeta(task *spec.PipelineTask, skip bool) {
+	task.Inspect.Metadata = append(task.Inspect.Metadata,
+		metadata.MetadataField{
+			Name:  "skip task",
+			Value: strconv.FormatBool(skip),
+		},
+	)
 }

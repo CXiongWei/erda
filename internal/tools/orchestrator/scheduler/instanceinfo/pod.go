@@ -136,8 +136,7 @@ func (r *PodReader) ByUid(uid string) *PodReader {
 }
 func (r *PodReader) ByUpdatedTime(beforeNSecs int) *PodReader {
 	// Use scheduler time query to avoid the inconsistency between sceduler and database time and cause the instance to GC by mistake
-	now := time.Now().Format("2006-01-02 15:04:05")
-	r.conditions = append(r.conditions, "updated_at < "+now+" - interval ? second")
+	r.conditions = append(r.conditions, "updated_at < now() - interval ? second")
 	r.values = append(r.values, beforeNSecs)
 	return r
 }
@@ -146,8 +145,14 @@ func (r *PodReader) Limit(n int) *PodReader {
 	r.limit = n
 	return r
 }
+
 func (r *PodReader) Do() ([]PodInfo, error) {
-	podinfo := []PodInfo{}
+	defer func() {
+		r.conditions = make([]string, 0)
+		r.values = make([]any, 0)
+	}()
+
+	podsInfo := make([]PodInfo, 0)
 	expr := r.db.Order("started_at desc")
 	for k := range r.conditions {
 		expr = expr.Where(r.conditions[k], r.values[k])
@@ -155,12 +160,11 @@ func (r *PodReader) Do() ([]PodInfo, error) {
 	if r.limit != 0 {
 		expr = expr.Limit(r.limit)
 	}
-	if err := expr.Find(&podinfo).Error; err != nil {
-		r.conditions = []string{}
+
+	if err := expr.Find(&podsInfo).Error; err != nil {
 		return nil, err
 	}
-	r.conditions = []string{}
-	return podinfo, nil
+	return podsInfo, nil
 }
 
 func (c *Client) PodWriter() *podWriter {
@@ -174,4 +178,8 @@ func (w *podWriter) Update(s PodInfo) error {
 }
 func (w *podWriter) Delete(ids ...uint64) error {
 	return w.db.Delete(PodInfo{}, "id in (?)", ids).Error
+}
+
+func (w *podWriter) DeleteByPodUid(cluster string, uuid string) error {
+	return w.db.Delete(PodInfo{}, "cluster = ? and uid = ?", cluster, uuid).Error
 }

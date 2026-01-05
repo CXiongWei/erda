@@ -15,74 +15,144 @@
 package permission
 
 import (
+	auditpb "github.com/erda-project/erda-proto-go/apps/aiproxy/audit/pb"
 	clientpb "github.com/erda-project/erda-proto-go/apps/aiproxy/client/pb"
 	richclientpb "github.com/erda-project/erda-proto-go/apps/aiproxy/client/rich_client/pb"
 	clientmodelrelationpb "github.com/erda-project/erda-proto-go/apps/aiproxy/client_model_relation/pb"
 	clienttokenpb "github.com/erda-project/erda-proto-go/apps/aiproxy/client_token/pb"
+	i18npb "github.com/erda-project/erda-proto-go/apps/aiproxy/i18n/pb"
+	mcppb "github.com/erda-project/erda-proto-go/apps/aiproxy/mcp_server/pb"
+	mcipb "github.com/erda-project/erda-proto-go/apps/aiproxy/mcp_server_config_instance/pb"
+	mtpb "github.com/erda-project/erda-proto-go/apps/aiproxy/mcp_server_template/pb"
 	modelpb "github.com/erda-project/erda-proto-go/apps/aiproxy/model/pb"
-	modelproviderpb "github.com/erda-project/erda-proto-go/apps/aiproxy/model_provider/pb"
+	policypb "github.com/erda-project/erda-proto-go/apps/aiproxy/policy_group/pb"
 	promptpb "github.com/erda-project/erda-proto-go/apps/aiproxy/prompt/pb"
+	serviceproviderpb "github.com/erda-project/erda-proto-go/apps/aiproxy/service_provider/pb"
 	sessionpb "github.com/erda-project/erda-proto-go/apps/aiproxy/session/pb"
+	templatepb "github.com/erda-project/erda-proto-go/apps/aiproxy/template/pb"
+	usagepb "github.com/erda-project/erda-proto-go/apps/aiproxy/usage/token/pb"
 )
 
 var CheckClientPerm = CheckPermissions(
 	&MethodPermission{Method: clientpb.ClientServiceServer.Create, OnlyAdmin: true},
-	&MethodPermission{Method: clientpb.ClientServiceServer.Get, AdminOrAk: true},
+	&MethodPermission{Method: clientpb.ClientServiceServer.Get, LoggedIn: true},
 	&MethodPermission{Method: clientpb.ClientServiceServer.Update, OnlyAdmin: true},
-	&MethodPermission{Method: clientpb.ClientServiceServer.Paging, OnlyAdmin: true},
+	&MethodPermission{Method: clientpb.ClientServiceServer.Paging, LoggedIn: true},
 	&MethodPermission{Method: clientpb.ClientServiceServer.Delete, OnlyAdmin: true},
 )
 
-var CheckModelProviderPerm = CheckPermissions(
-	&MethodPermission{Method: modelproviderpb.ModelProviderServiceServer.Create, OnlyAdmin: true},
-	&MethodPermission{Method: modelproviderpb.ModelProviderServiceServer.Get, OnlyAdmin: true},
-	&MethodPermission{Method: modelproviderpb.ModelProviderServiceServer.Update, OnlyAdmin: true},
-	&MethodPermission{Method: modelproviderpb.ModelProviderServiceServer.Delete, OnlyAdmin: true},
-	&MethodPermission{Method: modelproviderpb.ModelProviderServiceServer.Paging, OnlyAdmin: true},
+var CheckServiceProviderPerm = CheckPermissions(
+	&MethodPermission{Method: serviceproviderpb.ServiceProviderServiceServer.Create, AdminOrClient: true},
+	&MethodPermission{Method: serviceproviderpb.ServiceProviderServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: serviceproviderpb.ServiceProviderServiceServer.Update, AdminOrClient: true},
+	&MethodPermission{Method: serviceproviderpb.ServiceProviderServiceServer.Delete, AdminOrClient: true},
+	&MethodPermission{Method: serviceproviderpb.ServiceProviderServiceServer.Paging, LoggedIn: true},
 )
 
 var CheckModelPerm = CheckPermissions(
-	&MethodPermission{Method: modelpb.ModelServiceServer.Create, OnlyAdmin: true},
-	&MethodPermission{Method: modelpb.ModelServiceServer.Get, AdminOrAk: true},
-	&MethodPermission{Method: modelpb.ModelServiceServer.Update, OnlyAdmin: true},
-	&MethodPermission{Method: modelpb.ModelServiceServer.Delete, OnlyAdmin: true},
-	&MethodPermission{Method: modelpb.ModelServiceServer.Paging, OnlyAdmin: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.Create, AdminOrClient: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.Update, AdminOrClient: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.Delete, AdminOrClient: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.Paging, LoggedIn: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.UpdateModelAbilitiesInfo, AdminOrClient: true},
+	&MethodPermission{Method: modelpb.ModelServiceServer.LabelModel, AdminOrClient: true},
 )
 
 var CheckClientModelRelationPerm = CheckPermissions(
-	&MethodPermission{Method: clientmodelrelationpb.ClientModelRelationServiceServer.ListClientModels, AdminOrAk: true},
+	&MethodPermission{Method: clientmodelrelationpb.ClientModelRelationServiceServer.ListClientModels, LoggedIn: true},
 	&MethodPermission{Method: clientmodelrelationpb.ClientModelRelationServiceServer.Allocate, OnlyAdmin: true},
 	&MethodPermission{Method: clientmodelrelationpb.ClientModelRelationServiceServer.UnAllocate, OnlyAdmin: true},
+	&MethodPermission{Method: clientmodelrelationpb.ClientModelRelationServiceServer.Paging, OnlyAdmin: true},
 )
 
 var CheckPromptPerm = CheckPermissions(
-	&MethodPermission{Method: promptpb.PromptServiceServer.Create, AdminOrAk: true},
-	&MethodPermission{Method: promptpb.PromptServiceServer.Get, AdminOrAk: true},
-	&MethodPermission{Method: promptpb.PromptServiceServer.Update, AdminOrAk: true, CheckButNotSetClientId: false},
-	&MethodPermission{Method: promptpb.PromptServiceServer.Delete, AdminOrAk: true},
-	&MethodPermission{Method: promptpb.PromptServiceServer.Paging, AdminOrAk: true},
+	&MethodPermission{Method: promptpb.PromptServiceServer.Create, LoggedIn: true},
+	&MethodPermission{Method: promptpb.PromptServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: promptpb.PromptServiceServer.Update, LoggedIn: true},
+	&MethodPermission{Method: promptpb.PromptServiceServer.Delete, LoggedIn: true},
+	&MethodPermission{Method: promptpb.PromptServiceServer.Paging, LoggedIn: true},
 )
 
 var CheckSessionPerm = CheckPermissions(
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Create, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Get, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Update, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Delete, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Paging, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Archive, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.UnArchive, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.Reset, AdminOrAk: true},
-	&MethodPermission{Method: sessionpb.SessionServiceServer.GetChatLogs, AdminOrAk: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Create, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Update, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Delete, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Paging, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Archive, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.UnArchive, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.Reset, LoggedIn: true},
+	&MethodPermission{Method: sessionpb.SessionServiceServer.GetChatLogs, LoggedIn: true},
 )
 
 var CheckClientTokenPerm = CheckPermissions(
-	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Create, AdminOrAk: true},
-	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Get, AdminOrAk: true},
-	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Update, AdminOrAk: true},
-	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Paging, AdminOrAk: true},
-	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Delete, AdminOrAk: true},
+	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Create, AdminOrClient: true},
+	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Update, AdminOrClient: true},
+	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Paging, AdminOrClient: true},
+	&MethodPermission{Method: clienttokenpb.ClientTokenServiceServer.Delete, AdminOrClient: true},
 )
 
 var CheckRichClientPerm = CheckPermissions(
-	&MethodPermission{Method: richclientpb.RichClientServiceServer.GetByAccessKeyId, AdminOrAk: true},
+	&MethodPermission{Method: richclientpb.RichClientServiceServer.GetByAccessKeyId, AdminOrClient: true},
+)
+
+var CheckMCPPerm = CheckPermissions(
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.Get, AdminOrClient: true},
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.List, AdminOrClient: true},
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.Delete, OnlyAdmin: true},
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.Update, OnlyAdmin: true},
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.Register, AdminOrClient: true},
+	&MethodPermission{Method: mcppb.MCPServerServiceServer.Publish, OnlyAdmin: true},
+)
+
+var CheckMcpTemplatePerm = CheckPermissions(
+	&MethodPermission{Method: mtpb.MCPServerTemplateServiceServer.Get, AdminOrClient: true},
+	&MethodPermission{Method: mtpb.MCPServerTemplateServiceServer.List, AdminOrClient: true},
+	&MethodPermission{Method: mtpb.MCPServerTemplateServiceServer.Create, OnlyAdmin: true},
+)
+
+var CheckMcpConfigInstancePerm = CheckPermissions(
+	&MethodPermission{Method: mcipb.MCPServerConfigInstanceServiceServer.Get, AdminOrClient: true},
+	&MethodPermission{Method: mcipb.MCPServerConfigInstanceServiceServer.List, AdminOrClient: true},
+	&MethodPermission{Method: mcipb.MCPServerConfigInstanceServiceServer.Create, AdminOrClient: true},
+	&MethodPermission{Method: mcipb.MCPServerConfigInstanceServiceServer.Update, AdminOrClient: true},
+	&MethodPermission{Method: mcipb.MCPServerConfigInstanceServiceServer.Delete, AdminOrClient: true},
+)
+
+var CheckI18nPerm = CheckPermissions(
+	&MethodPermission{Method: i18npb.I18NServiceServer.Create, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.Get, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.Update, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.Delete, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.Paging, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.BatchCreate, OnlyAdmin: true},
+	&MethodPermission{Method: i18npb.I18NServiceServer.GetByConfig, OnlyAdmin: true},
+)
+
+var CheckAuditPerm = CheckPermissions(
+	&MethodPermission{Method: auditpb.AuditServiceServer.Paging, LoggedIn: true},
+)
+
+var CheckTokenUsagePerm = CheckPermissions(
+	&MethodPermission{Method: usagepb.TokenUsageServiceServer.Paging, LoggedIn: true},
+	&MethodPermission{Method: usagepb.TokenUsageServiceServer.Aggregate, LoggedIn: true},
+)
+
+var CheckTemplatePerm = CheckPermissions(
+	&MethodPermission{Method: templatepb.TemplateServiceServer.ListServiceProviderTemplates, LoggedIn: true},
+	&MethodPermission{Method: templatepb.TemplateServiceServer.ListModelTemplates, LoggedIn: true},
+)
+
+var CheckPolicyGroupPerm = CheckPermissions(
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.Create, AdminOrClient: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.Get, LoggedIn: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.Update, AdminOrClient: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.Delete, AdminOrClient: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.Paging, LoggedIn: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.UpsertForModelTemplate, AdminOrClient: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.GetForModelTemplate, LoggedIn: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.PreviewLabelGroups, LoggedIn: true},
+	&MethodPermission{Method: policypb.PolicyGroupServiceServer.ListAllOfficialLabels, LoggedIn: true},
 )

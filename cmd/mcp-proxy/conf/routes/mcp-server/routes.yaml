@@ -1,0 +1,24 @@
+# see: internal/pkg/ai-proxy/route/route.go#Routes
+
+routes:
+  - path: /proxy/connect/{mcpName}/{mcpTag}
+    method: GET
+    request_filters:
+      - name: auth
+      - name: mcp-server-request
+    response_filters:
+      - name: mcp-server-response
+  - path: /proxy/connect/{mcpName}/{mcpTag}
+    method: POST
+    request_filters:
+      - name: auth
+      - name: mcp-server-request
+    response_filters:
+      - name: mcp-server-response
+  - path: /proxy/message/{mcpName}/{mcpTag}/*
+    method: POST
+    request_filters:
+      - name: auth
+      - name: mcp-server-request
+    response_filters:
+      - name: mcp-server-response

@@ -1,0 +1,9 @@
+routes:
+  - path: /proxy/bailian/*
+    method: POST,GET
+    request_filters:
+      - name: rate-limit
+      - name: check-pass-through
+      - name: auth
+      - name: context
+      - name: pass-through-bailian

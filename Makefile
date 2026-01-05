@@ -130,13 +130,13 @@ run-test:
 	go run tools/gotools/go-test-sum/main.go
 
 full-test:
-	docker run --rm -ti -v $$(pwd):/go/src/output registry.erda.cloud/erda/erda-base:20240607 \
+	docker run --rm -ti -v $$(pwd):/go/src/output registry.erda.cloud/erda/erda-base:20250812 \
 		bash -c 'cd /go/src/output && build/scripts/test_in_container.sh'
 
 # docker image
-build-image: prepare
+build-image:
 	./build/scripts/docker_image.sh ${MODULE_PATH} build
-build-multi-arch: prepare
+build-multi-arch-image:
 	./build/scripts/docker_image.sh ${MODULE_PATH} build-multi-arch
 
 push-image:
@@ -199,17 +199,23 @@ ifeq "$(SKIP_PREPARE)" ""
 	cd "${PROJ_PATH}" && \
 	${GO_BUILD_ENV} go generate ./apistructs && \
 	${GO_BUILD_ENV} go generate ./internal/core/openapi/legacy/api/generate && \
-	${GO_BUILD_ENV} go generate ./internal/core/openapi/legacy/component-protocol/generate
-	make prepare-cli
+	${GO_BUILD_ENV} go generate ./internal/core/openapi/legacy/component-protocol/generate && \
+	make prepare-cli && \
+	make prepare-ai-proxy
 endif
 
+.PHONY: prepare-ai-proxy
+prepare-ai-proxy:
+	cd "${PROJ_PATH}" && \
+	${GO_BUILD_ENV} go generate ./internal/apps/ai-proxy/common/ctxhelper && \
+	${GO_BUILD_ENV} go generate ./internal/apps/ai-proxy/route/filters/all/generate
+
 proto-go-in-ci:
-	cd api/proto-go && \
- 	make build-use-docker-image
+	PROTO_PATH_PREFIX="$(PROTO_PATH_PREFIX)" $(MAKE) -C api/proto-go build-use-docker-image
 
 proto-go-in-local:
-	cd api/proto-go && \
-	make fetch-remote-proto && make clean && make build
+	$(MAKE) -C api/proto-go fetch-remote-proto
+	PROTO_PATH_PREFIX="$(PROTO_PATH_PREFIX)" $(MAKE) -C api/proto-go clean build
 
 buildkit-image-all:
 	MAKE_BUILD_CMD=build-all ./build/scripts/buildkit_image.sh

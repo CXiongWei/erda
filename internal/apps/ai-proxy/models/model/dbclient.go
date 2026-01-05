@@ -16,6 +16,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 
 	"gorm.io/gorm"
 
@@ -24,22 +25,29 @@ import (
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/common"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/metadata"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/models/model_type"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/sqlutil"
 )
 
 type DBClient struct {
 	DB *gorm.DB
 }
 
-func (dbClient *DBClient) Create(ctx context.Context, req *pb.ModelCreateRequest) (*pb.Model, error) {
+func (dbClient *DBClient) Create(ctx context.Context, req *pb.Model) (*pb.Model, error) {
 	c := &Model{
-		Name:       req.Name,
-		Desc:       req.Desc,
-		Type:       model_type.GetModelTypeFromProtobuf(req.Type),
-		ProviderID: req.ProviderId,
-		APIKey:     req.ApiKey,
-		Metadata:   metadata.FromProtobuf(req.Metadata),
+		Name:           req.Name,
+		Desc:           req.Desc,
+		Type:           model_type.GetModelTypeFromProtobuf(req.Type),
+		Publisher:      req.Publisher,
+		ProviderID:     req.ProviderId,
+		APIKey:         req.ApiKey,
+		ClientID:       req.ClientId,
+		TemplateID:     req.TemplateId,
+		TemplateParams: req.TemplateParams,
+		IsEnabled:      req.IsEnabled,
+		Labels:         req.Labels,
+		Metadata:       metadata.FromProtobuf(req.Metadata),
 	}
-	if err := dbClient.DB.Model(c).Create(c).Error; err != nil {
+	if err := dbClient.DB.WithContext(ctx).Model(c).Create(c).Error; err != nil {
 		return nil, err
 	}
 	return c.ToProtobuf(), nil
@@ -47,31 +55,44 @@ func (dbClient *DBClient) Create(ctx context.Context, req *pb.ModelCreateRequest
 
 func (dbClient *DBClient) Get(ctx context.Context, req *pb.ModelGetRequest) (*pb.Model, error) {
 	c := &Model{BaseModel: common.BaseModelWithID(req.Id)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
+	whereC := &Model{ClientID: req.ClientId}
+	if err := dbClient.DB.WithContext(ctx).Model(c).First(c, whereC).Error; err != nil {
 		return nil, err
 	}
 	return c.ToProtobuf(), nil
 }
 
-func (dbClient *DBClient) Update(ctx context.Context, req *pb.ModelUpdateRequest) (*pb.Model, error) {
-	c := &Model{
-		BaseModel:  common.BaseModelWithID(req.Id),
-		Name:       req.Name,
-		Desc:       req.Desc,
-		Type:       model_type.ModelType(req.Type),
-		ProviderID: req.ProviderId,
-		APIKey:     req.ApiKey,
-		Metadata:   metadata.FromProtobuf(req.Metadata),
+func (dbClient *DBClient) Update(ctx context.Context, req *pb.Model) (*pb.Model, error) {
+	if req.Id == "" {
+		return nil, gorm.ErrPrimaryKeyRequired
 	}
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
+	c := &Model{
+		BaseModel:      common.BaseModelWithID(req.Id),
+		Name:           req.Name,
+		Desc:           req.Desc,
+		APIKey:         req.ApiKey,
+		TemplateParams: req.TemplateParams,
+		IsEnabled:      req.IsEnabled,
+		Labels:         req.Labels,
+		Metadata:       metadata.FromProtobuf(req.Metadata),
+	}
+	whereC := &Model{
+		BaseModel: common.BaseModelWithID(req.Id),
+		ClientID:  req.ClientId,
+	}
+	if err := dbClient.DB.WithContext(ctx).Model(c).Where(whereC).Updates(c).Error; err != nil {
 		return nil, err
 	}
 	return dbClient.Get(ctx, &pb.ModelGetRequest{Id: req.Id})
 }
 
 func (dbClient *DBClient) Delete(ctx context.Context, req *pb.ModelDeleteRequest) (*commonpb.VoidResponse, error) {
+	if req.Id == "" {
+		return nil, gorm.ErrPrimaryKeyRequired
+	}
 	c := &Model{BaseModel: common.BaseModelWithID(req.Id)}
-	sql := dbClient.DB.Model(c).Delete(c)
+	whereC := &Model{ClientID: req.ClientId}
+	sql := dbClient.DB.Model(c).Delete(c, whereC)
 	if sql.Error != nil {
 		return nil, sql.Error
 	}
@@ -82,19 +103,30 @@ func (dbClient *DBClient) Delete(ctx context.Context, req *pb.ModelDeleteRequest
 }
 
 func (dbClient *DBClient) Paging(ctx context.Context, req *pb.ModelPagingRequest) (*pb.ModelPagingResponse, error) {
-	c := &Model{}
+	c := &Model{
+		ProviderID: req.ProviderId,
+		ClientID:   req.ClientId,
+		TemplateID: req.TemplateId,
+		IsEnabled:  req.IsEnabled,
+	}
 	sql := dbClient.DB.Model(c)
 	if req.Name != "" {
 		sql = sql.Where("name LIKE ?", "%"+req.Name+"%")
 	}
+	if req.NameFull != "" {
+		c.Name = req.NameFull
+	}
 	if req.Type != pb.ModelType_MODEL_TYPE_UNSPECIFIED {
-		c.Type = model_type.ModelType(req.Type)
+		c.Type = model_type.GetModelTypeFromProtobuf(req.Type)
 	}
 	if len(req.Ids) > 0 {
 		sql = sql.Where("id in (?)", req.Ids)
 	}
-	c.ProviderID = req.ProviderId
-	sql = sql.Where(c)
+	// order by
+	sql, err := sqlutil.HandleOrderBy(sql, req.OrderBys)
+	if err != nil {
+		return nil, err
+	}
 	var (
 		total int64
 		list  Models
@@ -106,7 +138,7 @@ func (dbClient *DBClient) Paging(ctx context.Context, req *pb.ModelPagingRequest
 		req.PageSize = 10
 	}
 	offset := (req.PageNum - 1) * req.PageSize
-	err := sql.Count(&total).Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
+	err = sql.WithContext(ctx).Where(c).Count(&total).Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
 	if err != nil {
 		return nil, err
 	}
@@ -114,4 +146,77 @@ func (dbClient *DBClient) Paging(ctx context.Context, req *pb.ModelPagingRequest
 		Total: total,
 		List:  list.ToProtobuf(),
 	}, nil
+}
+
+func (dbClient *DBClient) UpdateModelAbilitiesInfo(ctx context.Context, req *pb.ModelAbilitiesInfoUpdateRequest) (*commonpb.VoidResponse, error) {
+	m, err := dbClient.Get(ctx, &pb.ModelGetRequest{Id: req.Id, ClientId: req.ClientId})
+	if err != nil {
+		return nil, err
+	}
+	meta := metadata.FromProtobuf(m.Metadata)
+	publicMeta := meta.Public
+	if publicMeta == nil {
+		publicMeta = make(map[string]any)
+	}
+	publicMeta["abilities"] = req.Abilities
+	publicMeta["context"] = req.Context
+	publicMeta["pricing"] = req.Pricing
+
+	meta.Public = publicMeta
+
+	c := &Model{BaseModel: common.BaseModelWithID(req.Id)}
+	if err := dbClient.DB.WithContext(ctx).Model(c).UpdateColumn("metadata", meta).Error; err != nil {
+		return nil, err
+	}
+	return &commonpb.VoidResponse{}, nil
+}
+
+func (dbClient *DBClient) LabelModel(ctx context.Context, req *pb.ModelLabelRequest) (*pb.Model, error) {
+	if req.Id == "" {
+		return nil, gorm.ErrPrimaryKeyRequired
+	}
+	c := &Model{BaseModel: common.BaseModelWithID(req.Id), Labels: req.Labels}
+	if err := dbClient.DB.WithContext(ctx).Model(c).Select("labels").Updates(c).Error; err != nil {
+		return nil, err
+	}
+	return dbClient.Get(ctx, &pb.ModelGetRequest{Id: req.Id, ClientId: req.ClientId})
+}
+
+func (dbClient *DBClient) GetClientModelIDs(ctx context.Context, clientId string) ([]string, error) {
+	var modelClientIdClause string
+	var relationClientIdClause string
+	if clientId == "" {
+		modelClientIdClause = "(m.client_id = ? or m.client_id IS NULL)"
+		relationClientIdClause = "(r.client_id = ? or r.client_id IS NULL)"
+	} else {
+		modelClientIdClause = "m.client_id = ?"
+		relationClientIdClause = "r.client_id = ?"
+	}
+	sql := fmt.Sprintf(`
+SELECT
+    t.model_id
+FROM (
+    -- client-belonged models
+    SELECT
+        m.id          AS model_id
+    FROM ai_proxy_model AS m
+    WHERE %s and (m.deleted_at IS NULL or m.deleted_at <= '1970-01-01 08:00:00')
+
+    UNION
+
+    -- platform-assigned models
+    SELECT
+        r.model_id    AS model_id
+    FROM ai_proxy_client_model_relation AS r
+    WHERE %s and (r.deleted_at IS NULL or r.deleted_at <= '1970-01-01 08:00:00')
+) AS t
+`, modelClientIdClause, relationClientIdClause)
+	var ids []string
+	if err := dbClient.DB.WithContext(ctx).Raw(sql,
+		clientId,
+		clientId,
+	).Scan(&ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
 }

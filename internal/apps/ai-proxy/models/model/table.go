@@ -28,34 +28,48 @@ type Model struct {
 	Name       string               `gorm:"column:name;type:varchar(191)" json:"name" yaml:"name"`
 	Desc       string               `gorm:"column:desc;type:varchar(1024)" json:"desc" yaml:"desc"`
 	Type       model_type.ModelType `gorm:"column:type;type:varchar(32)" json:"type" yaml:"type"`
+	Publisher  string               `gorm:"column:publisher;type:varchar(36)" json:"publisher" yaml:"publisher"`
 	ProviderID string               `gorm:"column:provider_id;type:char(36)" json:"providerID" yaml:"providerID"`
+	ClientID   string               `gorm:"column:client_id;type:char(36)" json:"clientID" yaml:"clientID"`
 	APIKey     string               `gorm:"column:api_key;type:varchar(191)" json:"aPIKey" yaml:"aPIKey"`
 	Metadata   metadata.Metadata    `gorm:"column:metadata;type:mediumtext" json:"metadata" yaml:"metadata"`
+
+	TemplateID     string            `gorm:"column:template_id;type:varchar(64)" json:"templateID" yaml:"templateID"`
+	TemplateParams map[string]string `gorm:"column:template_params;type:jsonb;serializer:json" json:"templateParams" yaml:"templateParams"`
+	IsEnabled      *bool             `gorm:"column:is_enabled;type:bool;not null;default:1" json:"isEnabled" yaml:"isEnabled"`
+	Labels         map[string]string `gorm:"column:labels;type:jsonb;serializer:json" json:"labels" yaml:"labels"`
 }
 
 func (*Model) TableName() string { return "ai_proxy_model" }
 
 func (m *Model) ToProtobuf() *pb.Model {
+	pbMetadata := m.Metadata.ToProtobuf()
 	return &pb.Model{
-		Id:         m.ID.String,
-		CreatedAt:  timestamppb.New(m.CreatedAt),
-		UpdatedAt:  timestamppb.New(m.UpdatedAt),
-		DeletedAt:  timestamppb.New(m.DeletedAt.Time),
-		Name:       m.Name,
-		Desc:       m.Desc,
-		Type:       pb.ModelType(pb.ModelType_value[string(m.Type)]),
-		ProviderId: m.ProviderID,
-		ApiKey:     m.APIKey,
-		Metadata:   m.Metadata.ToProtobuf(),
+		Id:             m.ID.String,
+		CreatedAt:      timestamppb.New(m.CreatedAt),
+		UpdatedAt:      timestamppb.New(m.UpdatedAt),
+		DeletedAt:      timestamppb.New(m.DeletedAt.Time),
+		Name:           m.Name,
+		Desc:           m.Desc,
+		Type:           pb.ModelType(pb.ModelType_value[string(m.Type)]),
+		ProviderId:     m.ProviderID,
+		ApiKey:         m.APIKey,
+		ClientId:       m.ClientID,
+		Publisher:      m.Publisher,
+		TemplateId:     m.TemplateID,
+		TemplateParams: m.TemplateParams,
+		IsEnabled:      m.IsEnabled,
+		Labels:         m.Labels,
+		Metadata:       pbMetadata,
 	}
 }
 
 type Models []*Model
 
 func (models Models) ToProtobuf() []*pb.Model {
-	var pbClients []*pb.Model
+	var pbModels []*pb.Model
 	for _, c := range models {
-		pbClients = append(pbClients, c.ToProtobuf())
+		pbModels = append(pbModels, c.ToProtobuf())
 	}
-	return pbClients
+	return pbModels
 }

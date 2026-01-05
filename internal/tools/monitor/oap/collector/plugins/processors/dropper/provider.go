@@ -31,12 +31,14 @@ import (
 var providerName = plugins.WithPrefixProcessor("dropper")
 
 type config struct {
-	MetricPrefix string `file:"metric_prefix"`
+	MetricPrefix string   `file:"metric_prefix"`
+	WhiteList    []string `file:"white_list"`
 }
 
 type provider struct {
-	Cfg *config
-	Log logs.Logger
+	Cfg          *config
+	Log          logs.Logger
+	allowMetrics map[string]struct{}
 }
 
 var _ model.Processor = (*provider)(nil)
@@ -60,13 +62,29 @@ func (p *provider) ProcessLog(item *log.Log) (*log.Log, error) { return item, ni
 
 func (p *provider) ProcessSpan(item *trace.Span) (*trace.Span, error) { return item, nil }
 
-func (p *provider) ProcessRaw(item *odata.Raw) (*odata.Raw, error) { return item, nil }
+func (p *provider) ProcessRaw(item *odata.Raw) (*odata.Raw, error) {
+	if len(p.Cfg.MetricPrefix) == 0 {
+		return item, nil
+	}
+	name := item.GetName()
+	if _, ok := p.allowMetrics[name]; ok {
+		return item, nil
+	}
+	if len(name) > 0 && strings.HasPrefix(name, p.Cfg.MetricPrefix) {
+		return nil, nil
+	}
+	return item, nil
+}
 
 func (p *provider) ProcessProfile(*profile.ProfileIngest) (*profile.Output, error) {
 	return &profile.Output{}, nil
 }
 
 func (p *provider) Init(ctx servicehub.Context) error {
+	p.allowMetrics = make(map[string]struct{})
+	for _, v := range p.Cfg.WhiteList {
+		p.allowMetrics[v] = struct{}{}
+	}
 	return nil
 }
 

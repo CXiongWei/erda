@@ -1,0 +1,1 @@
+INSERT INTO `tb_tmc_version` (`engine`, `version`, `release_id`, `is_deleted`) VALUES('config-center','2.0.0',NULL,'N')

@@ -4,9 +4,11 @@ package erda.apps.aiproxy.model;
 option go_package = "github.com/erda-project/erda-proto-go/apps/aiproxy/model/pb";
 
 import "google/api/annotations.proto";
-import "apps/aiproxy/metadata/metadata.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "github.com/envoyproxy/protoc-gen-validate/validate/validate.proto";
+
+import "apps/aiproxy/metadata/metadata.proto";
 import "common/http.proto";
 
 service ModelService {
@@ -39,6 +41,19 @@ service ModelService {
             get: "/api/ai-proxy/models?type={type}"
         };
     }
+
+    rpc UpdateModelAbilitiesInfo(ModelAbilitiesInfoUpdateRequest) returns (common.VoidResponse) {
+        option(google.api.http) = {
+            post: "/api/ai-proxy/models/{id}/actions/update-abilities-info"
+        };
+    }
+
+    // LabelModel always do override operation.
+    rpc LabelModel(ModelLabelRequest) returns (Model) {
+        option(google.api.http) = {
+            post: "/api/ai-proxy/models/{id}/actions/label-model"
+        };
+    }
 }
 
 message Model {
@@ -53,6 +68,13 @@ message Model {
     string providerId = 8;
     string apiKey = 9;
     metadata.Metadata metadata = 10;
+    string publisher = 11;
+
+    string clientId = 12;
+    string templateId = 13;
+    map<string, string> templateParams = 14;
+    optional bool isEnabled = 15;
+    map<string, string> labels = 16;
 }
 
 enum ModelType {
@@ -69,28 +91,41 @@ enum ModelType {
 message ModelCreateRequest {
     string name = 1 [(validate.rules).string = {min_len: 4, max_len: 191}];
     string desc = 2 [(validate.rules).string.max_len = 1024];
-    ModelType type = 3 [(validate.rules).enum = {defined_only: true, not_in: [0]}];
-    string providerId = 4 [(validate.rules).string = {len: 36}];
-    string apiKey = 5;
-    metadata.Metadata metadata = 6;
+    string providerId = 3 [(validate.rules).string = {len: 36}];
+    metadata.Metadata metadata = 4;
+
+    string clientId = 5 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    string templateId = 6 [(validate.rules).string = {max_len: 36}]; // required, must create from template
+    map<string, string> templateParams = 7; // placeholder values to render template config
+    optional bool isEnabled = 8;
 }
 
 message ModelUpdateRequest {
     string id = 1;
     string name = 2 [(validate.rules).string = {min_len: 4, max_len: 191}];
     string desc = 3 [(validate.rules).string.max_len = 1024];
-    ModelType type = 4 [(validate.rules).enum = {defined_only: true, not_in: [0]}];
-    string providerId = 5 [(validate.rules).string = {len: 36}];
-    string apiKey = 6;
-    metadata.Metadata metadata = 7;
+    metadata.Metadata metadata = 4;
+
+    // auto-injected to restrict data permission
+    string clientId = 5 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    map<string, string> templateParams = 6; // placeholder values to render template config
+    optional bool isEnabled = 7;
 }
 
 message ModelDeleteRequest {
     string id = 1 [(validate.rules).string = {len: 36}];
+
+    // auto-injected to restrict data permission
+    string clientId = 2 [(validate.rules).string = {len: 36, ignore_empty: true}];
 }
 
 message ModelGetRequest {
     string id = 1 [(validate.rules).string = {len: 36}];
+
+    // auto-injected to restrict data permission
+    string clientId = 2 [(validate.rules).string = {len: 36, ignore_empty: true}];
+
+    bool renderTemplate = 3;
 }
 
 message ModelPagingRequest {
@@ -100,9 +135,38 @@ message ModelPagingRequest {
     ModelType type = 4 [(validate.rules).enum = {defined_only: true}];
     string providerId = 5 [(validate.rules).string = {ignore_empty: true, len: 36}];
     repeated string ids = 6 [(validate.rules).repeated.items.string = {len: 36}];
+    repeated string orderBys = 7 [(validate.rules).repeated.items.string = {ignore_empty: true, min_len: 2, max_len: 32}];
+    string nameFull = 8 [(validate.rules).string = {ignore_empty: true, min_len: 2, max_len: 191}];
+
+    // auto-injected to restrict data permission
+    string clientId = 9 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    string templateId = 10 [(validate.rules).string = {max_len: 36, ignore_empty: true}];
+    string publisher = 11 [(validate.rules).string = {max_len: 36, ignore_empty: true}];
+    bool renderTemplate = 12;
+    optional bool isEnabled = 13;
+    bool clientOnly = 14; // only return client-specified model instance
+    bool viaDB = 15; // default from cache
 }
 
 message ModelPagingResponse {
     int64 total = 1;
     repeated Model list = 2;
+}
+
+message ModelAbilitiesInfoUpdateRequest {
+    string id = 1 [(validate.rules).string = {len: 36}];
+    map<string, google.protobuf.Value> abilities = 2;
+    map<string, google.protobuf.Value> context = 3;
+    map<string, google.protobuf.Value> pricing = 4;
+
+    // auto-injected to restrict data permission
+    string clientId = 5 [(validate.rules).string = {len: 36, ignore_empty: true}];
+}
+
+message ModelLabelRequest {
+    string id = 1 [(validate.rules).string = {len: 36}];
+    map<string, string> labels = 2;
+
+    // auto-injected to restrict data permission
+    string clientId = 3 [(validate.rules).string = {len: 36, ignore_empty: true}];
 }

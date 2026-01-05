@@ -95,6 +95,13 @@ func (e *Endpoints) pipelineCreate(ctx context.Context, r *http.Request, vars ma
 	if err != nil {
 		return errorresp.ErrResp(err)
 	}
+
+	// also add project/org default config namespace
+	// priority: org->project->app->user
+	reqPipeline.ConfigManageNamespaces = append(append(makeOrgDefaultLevelCmsNs(app.OrgID),
+		makeProjectDefaultLevelCmsNs(app.ProjectID)...),
+		reqPipeline.ConfigManageNamespaces...)
+
 	rules, err := e.branchRule.Query(apistructs.ProjectScope, int64(app.ProjectID))
 	if err != nil {
 		return errorresp.ErrResp(err)
@@ -165,6 +172,20 @@ func (e *Endpoints) pipelineDetail(ctx context.Context, r *http.Request, vars ma
 	}
 
 	return httpserver.OkResp(result)
+}
+
+func makeProjectDefaultLevelCmsNs(projectID uint64) []string {
+	// default need be added before custom
+	return []string{
+		fmt.Sprintf("project-%d-default", projectID),
+	}
+}
+
+func makeOrgDefaultLevelCmsNs(orgID uint64) []string {
+	// default need be added before custom
+	return []string{
+		fmt.Sprintf("org-%d-default", orgID),
+	}
 }
 
 func getPipelineDetailAndCheckPermission(svc pipelinepb.PipelineServiceServer, permission *permission.Permission, req apistructs.CICDPipelineDetailRequest, identityInfo apistructs.IdentityInfo) (*pipelinepb.PipelineDetailDTO, error) {

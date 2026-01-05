@@ -15,17 +15,35 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/erda-project/erda-infra/base/servicehub"
-	_ "github.com/erda-project/erda/internal/apps/ai-proxy"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/config"
+	_ "github.com/erda-project/erda/internal/apps/ai-proxy/providers/ai-proxy" // import service hub dependencies
 	"github.com/erda-project/erda/pkg/common"
 )
 
 //go:embed bootstrap.yml
 var bootstrap string
 
+//go:embed conf/routes
+var routesFS embed.FS
+
+//go:embed conf/templates
+var templatesFS embed.FS
+
+func init() {
+	logrus.SetFormatter(&logrus.TextFormatter{
+		ForceColors:     true,
+		FullTimestamp:   true,
+		TimestampFormat: "2006-01-02 15:04:05.000",
+	})
+}
+
 func main() {
+	config.InjectEmbedFS(&routesFS, &templatesFS)
 	common.Run(&servicehub.RunOptions{
 		Content: bootstrap,
 	})

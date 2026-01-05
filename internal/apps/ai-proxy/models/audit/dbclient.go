@@ -16,6 +16,7 @@ package audit
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
@@ -32,20 +33,34 @@ type DBClient struct {
 	DB *gorm.DB
 }
 
-func (dbClient *DBClient) Get(ctx context.Context, req *pb.AuditGetRequest) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
+func (dbClient *DBClient) Paging(ctx context.Context, req *pb.AuditPagingRequest) (*pb.AuditPagingResponse, error) {
+	c := &Audit{
+		AuthKey:    req.AuthKey,
+		XRequestID: req.XRequestId,
+		CallID:     req.CallId,
+		ClientID:   req.ClientId,
+		ModelID:    req.ModelId,
+		Username:   req.Username,
+	}
+	sql := dbClient.DB.Model(c)
+	// prompt
+	if req.Prompt != "" {
+		sql = sql.Where("prompt LIKE ?", "%"+req.Prompt+"%")
+	}
+	// operation_id
+	if req.OperationId != "" {
+		sql = sql.Where("operation_id LIKE ?", "%"+req.OperationId+"%")
+	}
+
+	before, after, err := ValidateAndGetTimeRange(req)
+	if err != nil {
 		return nil, err
 	}
-	return c.ToProtobuf(), nil
-}
+	sql = sql.Where("created_at <= ?", before)
+	sql = sql.Where("created_at >= ?", after)
 
-func (dbClient *DBClient) Paging(ctx context.Context, req *pb.AuditPagingRequest) (*pb.AuditPagingResponse, error) {
-	c := &Audit{BizSource: req.Source}
-	sql := dbClient.DB.Model(c).Where(c)
-	if len(req.Ids) > 0 {
-		sql = sql.Where("id IN (?)", req.Ids)
-	}
+	sql = sql.WithContext(ctx).Where(c).Unscoped()
+
 	var (
 		total int64
 		list  Audits
@@ -56,8 +71,14 @@ func (dbClient *DBClient) Paging(ctx context.Context, req *pb.AuditPagingRequest
 	if req.PageSize == 0 {
 		req.PageSize = 10
 	}
+	if req.PageSize > 20 {
+		req.PageSize = 20
+	}
 	offset := (req.PageNum - 1) * req.PageSize
-	err := sql.Count(&total).Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
+	sql = sql.Count(&total)
+	// order by
+	sql = sql.Order("created_at DESC")
+	err = sql.Limit(int(req.PageSize)).Offset(int(offset)).Find(&list).Error
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +86,34 @@ func (dbClient *DBClient) Paging(ctx context.Context, req *pb.AuditPagingRequest
 		Total: total,
 		List:  list.ToProtobuf(),
 	}, nil
+}
+
+func ValidateAndGetTimeRange(req *pb.AuditPagingRequest) (time.Time, time.Time, error) {
+	// time range
+	var before, after time.Time
+	if req.TimeRangeBeforeMs == 0 && req.TimeRangeAfterMs == 0 {
+		before = time.Now()
+		after = before.AddDate(0, 0, -1)
+	} else if req.TimeRangeBeforeMs != 0 && req.TimeRangeAfterMs != 0 {
+		var ok bool
+		before, ok = pbutil.TimeFromMillis(req.TimeRangeBeforeMs)
+		if !ok {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid TimeRangeBeforeMs")
+		}
+		after, ok = pbutil.TimeFromMillis(req.TimeRangeAfterMs)
+		if !ok {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid TimeRangeAfterMs")
+		}
+	} else {
+		return time.Time{}, time.Time{}, fmt.Errorf("TimeRangeBeforeMs and TimeRangeAfterMs must be passed together")
+	}
+	if before.Sub(after) > 24*time.Hour {
+		return time.Time{}, time.Time{}, fmt.Errorf("time range span cannot exceed one day")
+	}
+	if before.Sub(after) < 0 {
+		return time.Time{}, time.Time{}, fmt.Errorf("TimeRangeBeforeMs must be after TimeRangeAfterMs")
+	}
+	return before, after, nil
 }
 
 func (dbClient *DBClient) CreateWhenReceived(ctx context.Context, req *pb.AuditCreateRequestWhenReceived) (*pb.Audit, error) {
@@ -80,6 +129,7 @@ func (dbClient *DBClient) CreateWhenReceived(ctx context.Context, req *pb.AuditC
 	c.RequestBody = req.RequestBody
 	c.UserAgent = req.UserAgent
 	c.XRequestID = req.XRequestId
+	c.CallID = req.CallId
 	c.Username = req.Username
 	c.Email = req.Email
 	c.BizSource = req.BizSource
@@ -88,7 +138,6 @@ func (dbClient *DBClient) CreateWhenReceived(ctx context.Context, req *pb.AuditC
 	meta := metadata.AuditMetadata{
 		Public: metadata.AuditMetadataPublic{
 			RequestContentType: req.RequestContentType,
-			RequestHeader:      req.RequestHeader,
 		},
 		Secret: metadata.AuditMetadataSecret{
 			IdentityPhoneNumber: req.IdentityPhoneNumber,
@@ -103,178 +152,18 @@ func (dbClient *DBClient) CreateWhenReceived(ctx context.Context, req *pb.AuditC
 	cputil.MustObjJSONTransfer(&meta, &pbMeta)
 	c.Metadata = metadata.FromProtobuf(&pbMeta)
 
-	if err := dbClient.DB.Create(c).Error; err != nil {
+	if err := dbClient.DB.WithContext(ctx).Create(c).Error; err != nil {
 		return nil, err
 	}
 	return c.ToProtobuf(), nil
 }
 
-func (dbClient *DBClient) UpdateAfterBasicContextParsed(ctx context.Context, req *pb.AuditUpdateRequestAfterBasicContextParsed) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
+func (dbClient *DBClient) Update(ctx context.Context, rec *Audit) (*pb.Audit, error) {
+	c := &Audit{BaseModel: common.BaseModelWithID(rec.ID.String)}
 	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
 		return nil, err
 	}
-
-	c.ClientID = req.ClientId
-	c.ModelID = req.ModelId
-	c.SessionID = req.SessionId
-
-	c.Username = req.Username
-	c.Email = req.Email
-
-	c.OperationID = req.OperationId
-	if req.BizSource != "" {
-		c.BizSource = req.BizSource
-	}
-	if req.Username != "" {
-		c.Username = req.Username
-	}
-	if req.Email != "" {
-		c.Email = req.Email
-	}
-
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	if req.DingtalkStaffId != "" {
-		auditMetadata.Secret.DingtalkStaffId = req.DingtalkStaffId
-	}
-	if req.IdentityJobNumber != "" {
-		auditMetadata.Secret.IdentityJobNumber = req.IdentityJobNumber
-	}
-	if req.IdentityPhoneNumber != "" {
-		auditMetadata.Secret.IdentityPhoneNumber = req.IdentityPhoneNumber
-	}
-
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
-		return nil, err
-	}
-	return c.ToProtobuf(), nil
-}
-
-func (dbClient *DBClient) UpdateAfterSpecificContextParsed(ctx context.Context, req *pb.AuditUpdateRequestAfterSpecificContextParsed) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
-		return nil, err
-	}
-
-	c.Prompt = req.Prompt
-
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	auditMetadata.Public.RequestFunctionCallName = req.RequestFunctionCallName
-	// audio info
-	if req.AudioFileName != "" {
-		auditMetadata.Public.AudioFileName = req.AudioFileName
-	}
-	if req.AudioFileSize != "" {
-		auditMetadata.Public.AudioFileSize = req.AudioFileSize
-	}
-	if req.AudioFileHeaders != "" {
-		auditMetadata.Public.AudioFileHeaders = req.AudioFileHeaders
-	}
-	// image info
-	if req.ImageQuality != "" {
-		auditMetadata.Public.ImageQuality = req.ImageQuality
-	}
-	if req.ImageSize != "" {
-		auditMetadata.Public.ImageSize = req.ImageSize
-	}
-	if req.ImageStyle != "" {
-		auditMetadata.Public.ImageStyle = req.ImageStyle
-	}
-
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
-		return nil, err
-	}
-	return c.ToProtobuf(), nil
-}
-
-func (dbClient *DBClient) UpdateAfterLLMDirectorInvoke(ctx context.Context, req *pb.AuditUpdateRequestAfterLLMDirectorInvoke) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
-		return nil, err
-	}
-	c.ActualRequestBody = req.ActualRequestBody
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	auditMetadata.Public.ActualRequestURL = req.ActualRequestURL
-	auditMetadata.Public.ActualRequestHeader = req.ActualRequestHeader
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
-		return nil, err
-	}
-	return c.ToProtobuf(), nil
-}
-
-func (dbClient *DBClient) UpdateAfterLLMResponse(ctx context.Context, req *pb.AuditUpdateRequestAfterLLMResponse) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
-		return nil, err
-	}
-
-	c.ResponseAt = *pbutil.GetTimeInLocal(req.ResponseAt)
-	c.Status = req.Status
-	c.ActualResponseBody = req.ActualResponseBody
-
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	auditMetadata.Public.ResponseContentType = req.ResponseContentType
-	if req.ResponseStreamDoneAt != nil {
-		auditMetadata.Public.ResponseStreamDoneAt = pbutil.GetTimeInLocal(req.ResponseStreamDoneAt).String()
-	}
-	// time cost
-	if req.ResponseStreamDoneAt != nil {
-		auditMetadata.Public.TimeCost = req.ResponseStreamDoneAt.AsTime().Sub(c.RequestAt).String()
-	} else {
-		auditMetadata.Public.TimeCost = req.ResponseAt.AsTime().Sub(c.RequestAt).String()
-	}
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
-		return nil, err
-	}
-	return c.ToProtobuf(), nil
-}
-
-func (dbClient *DBClient) UpdateAfterLLMDirectorResponse(ctx context.Context, req *pb.AuditUpdateRequestAfterLLMDirectorResponse) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
-		return nil, err
-	}
-
-	c.Completion = req.Completion
-	c.ResponseBody = req.ResponseBody
-	c.ResponseFunctionCallName = req.ResponseFunctionCallName
-
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	auditMetadata.Public.ResponseHeader = req.ResponseHeader
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
-		return nil, err
-	}
-	return c.ToProtobuf(), nil
-}
-
-func (dbClient *DBClient) SetFilterErrorAudit(ctx context.Context, req *pb.AuditUpdateRequestWhenFilterError) (*pb.Audit, error) {
-	c := &Audit{BaseModel: common.BaseModelWithID(req.AuditId)}
-	if err := dbClient.DB.Model(c).First(c).Error; err != nil {
-		return nil, err
-	}
-
-	var auditMetadata metadata.AuditMetadata
-	cputil.MustObjJSONTransfer(&c.Metadata, &auditMetadata)
-	auditMetadata.Public.FilterName = req.FilterName
-	auditMetadata.Public.FilterError = req.FilterError
-	cputil.MustObjJSONTransfer(&auditMetadata, &c.Metadata)
-
-	if err := dbClient.DB.Model(c).Updates(c).Error; err != nil {
+	if err := dbClient.DB.Model(c).Updates(rec).Error; err != nil {
 		return nil, err
 	}
 	return c.ToProtobuf(), nil

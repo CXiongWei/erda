@@ -21,20 +21,21 @@ import (
 
 	"github.com/erda-project/erda-infra/pkg/transport"
 	"github.com/erda-project/erda-infra/pkg/transport/interceptor"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/common/auth"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/common/auth/akutil"
+	"github.com/erda-project/erda/internal/apps/ai-proxy/common/ctxhelper"
 	"github.com/erda-project/erda/internal/apps/ai-proxy/handlers"
-	"github.com/erda-project/erda/internal/apps/ai-proxy/handlers/common/akutil"
-	"github.com/erda-project/erda/internal/apps/ai-proxy/handlers/common/auth"
-	"github.com/erda-project/erda/internal/apps/ai-proxy/vars"
 	"github.com/erda-project/erda/internal/pkg/audit"
 )
 
 type MethodPermission struct {
-	Method                 interface{}
-	OnlyAdmin              bool
-	OnlyAk                 bool
-	AdminOrAk              bool
-	NoAuth                 bool
-	CheckButNotSetClientId bool
+	Method            interface{}
+	OnlyAdmin         bool
+	OnlyClient        bool
+	AdminOrClient     bool // no client-token
+	LoggedIn          bool // just logged in
+	NoAuth            bool
+	SkipSetClientInfo bool
 }
 
 func CheckPermissions(perms ...*MethodPermission) transport.ServiceOption {
@@ -70,18 +71,25 @@ var checkOneMethodPermission = func(methods map[string]*MethodPermission) interc
 				logrus.Infof("[pass] only admin permission, method: %s", fullMethodName)
 				return h(ctx, req)
 			}
-			if perm.OnlyAk {
+			if perm.OnlyClient {
 				if !auth.IsClient(ctx) {
 					return nil, handlers.ErrNoPermission
 				}
-				logrus.Infof("[pass] only ak permission, method: %s", info.Method())
+				logrus.Infof("[pass] only ak permission, method: %s", fullMethodName)
 				return h(ctx, req)
 			}
-			if perm.AdminOrAk {
-				if !auth.Valid(ctx) {
+			if perm.AdminOrClient {
+				if !auth.IsAdminOrClient(ctx) {
 					return nil, handlers.ErrNoPermission
 				}
-				logrus.Infof("[pass] admin or ak permission, method: %s", info.Method())
+				logrus.Infof("[pass] admin or ak permission, method: %s", fullMethodName)
+				return h(ctx, req)
+			}
+			if perm.LoggedIn {
+				if !auth.IsLoggedIn(ctx) {
+					return nil, handlers.ErrNotAuthorized
+				}
+				logrus.Infof("[pass] logged-in permission, method: %s", fullMethodName)
 				return h(ctx, req)
 			}
 			logrus.Errorf("[reject] should not be here, method: %s", fullMethodName)
@@ -100,11 +108,16 @@ var checkAndSetClientId = func(methods map[string]*MethodPermission) interceptor
 				logrus.Errorf("[reject] permission undefined, method: %s", fullMethodName)
 				return nil, handlers.ErrNoPermission
 			}
-			clientId, ok := ctx.Value(vars.CtxKeyClientId{}).(string)
+			clientId, ok := ctxhelper.GetClientId(ctx)
 			if !ok || clientId == "" {
 				return h(ctx, req)
 			}
-			if err := akutil.AutoCheckAndSetClientId(clientId, req, perm.CheckButNotSetClientId); err != nil {
+			clientToken, ok := ctxhelper.GetClientToken(ctx)
+			var clientTokenId string
+			if ok {
+				clientTokenId = clientToken.Id
+			}
+			if err := akutil.AutoCheckAndSetClientInfo(clientId, clientTokenId, req, perm.SkipSetClientInfo); err != nil {
 				return nil, err
 			}
 			return h(ctx, req)

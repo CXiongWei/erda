@@ -1,0 +1,41 @@
+routes:
+  - path: /v1/responses
+    method: POST
+    request_filters:
+      - name: rate-limit
+      - name: auth
+      - name: context
+      - name: context-responses
+      - name: responses-api-compatible
+      - name: thinking-handler
+      - name: openai-compatible-director
+      - name: set-response-chunk-splitter
+    response_filters:
+      - name: json-no-unicode
+
+  - path: /v1/responses/{response_id}
+    method: GET
+    request_filters:
+      - name: auth
+      - name: context
+      - name: openai-compatible-director
+    response_filters:
+      - name: json-no-unicode
+
+  - path: /v1/responses/{response_id}
+    method: DELETE
+    request_filters:
+      - name: auth
+      - name: context
+      - name: openai-compatible-director
+    response_filters:
+      - name: json-no-unicode
+
+  - path: /v1/responses/{response_id}/input_items
+    method: GET
+    request_filters:
+      - name: auth
+      - name: context
+      - name: openai-compatible-director
+    response_filters:
+      - name: json-no-unicode

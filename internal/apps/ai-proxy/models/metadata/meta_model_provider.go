@@ -17,33 +17,47 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/erda-project/erda/internal/apps/ai-proxy/models/metadata/api_segment"
 )
 
 type (
-	ModelProviderMeta struct {
-		Public ModelProviderMetaPublic `json:"public,omitempty"`
-		Secret ModelProviderMetaSecret `json:"secret,omitempty"`
+	ServiceProviderMeta struct {
+		Public ServiceProviderMetaPublic `json:"public,omitempty"`
+		Secret ServiceProviderMetaSecret `json:"secret,omitempty"`
 	}
-	ModelProviderMetaPublic struct {
-		Scheme   string `json:"scheme,omitempty"`
-		Endpoint string `json:"endpoint,omitempty"`
-		Host     string `json:"host,omitempty"`
+	ServiceProviderMetaPublic struct {
+		Scheme   string `json:"scheme,omitempty"`   // deprecated, use @APIStyleConfig
+		Endpoint string `json:"endpoint,omitempty"` // deprecated, use @APIStyleConfig
+		Host     string `json:"host,omitempty"`     // deprecated, use @APIStyleConfig
 		Location string `json:"location,omitempty"`
-		Region   string `json:"region,omitempty"`
+
+		RewritePath string `json:"rewritePath,omitempty"`
+
+		// API Related configs
+		API *api_segment.API `json:"api,omitempty"`
 	}
-	ModelProviderMetaSecret struct {
+	ServiceProviderMetaSecret struct {
 		AnotherAPIKey string `json:"anotherApiKey,omitempty"`
 	}
 )
 
-func (m *Metadata) ToModelProviderMeta() (*ModelProviderMeta, error) {
+func (m *Metadata) ToServiceProviderMeta() (*ServiceProviderMeta, error) {
 	b, err := json.Marshal(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal Metadata to json: %v", err)
 	}
-	var result ModelProviderMeta
+	var result ServiceProviderMeta
 	if err := json.Unmarshal(b, &result); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal string to ModelProviderMeta: %v", err)
+		return nil, fmt.Errorf("failed to unmarshal string to ServiceProviderMeta: %v", err)
 	}
 	return &result, nil
+}
+
+func (m *Metadata) MustToServiceProviderMeta() *ServiceProviderMeta {
+	meta, err := m.ToServiceProviderMeta()
+	if err != nil {
+		panic(fmt.Sprintf("failed to convert Metadata to ServiceProviderMeta: %v", err))
+	}
+	return meta
 }

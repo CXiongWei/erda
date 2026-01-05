@@ -35,16 +35,15 @@ import (
 	"github.com/rancher/remotedialer"
 	"github.com/sirupsen/logrus"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"google.golang.org/grpc/metadata"
 
-	"github.com/erda-project/erda-infra/pkg/transport"
 	clusterpb "github.com/erda-project/erda-proto-go/core/clustermanager/cluster/pb"
 	tokenpb "github.com/erda-project/erda-proto-go/core/token/pb"
 	"github.com/erda-project/erda/apistructs"
 	"github.com/erda-project/erda/bundle"
 	"github.com/erda-project/erda/internal/tools/cluster-manager/dialer/auth"
 	"github.com/erda-project/erda/internal/tools/cluster-manager/dialer/config"
-	"github.com/erda-project/erda/pkg/http/httputil"
+	"github.com/erda-project/erda/pkg/common/apis"
+	"github.com/erda-project/erda/pkg/discover"
 )
 
 var (
@@ -74,7 +73,7 @@ func clusterRegister(ctx context.Context, server *remotedialer.Server, rw http.R
 	registerFunc := func(clusterKey string, clusterInfo cluster) {
 		ctx, cancel := context.WithTimeout(context.Background(), registerTimeout)
 		defer cancel()
-		ctx = transport.WithHeader(ctx, metadata.New(map[string]string{httputil.InternalHeader: "cluster-manager"}))
+		ctx = apis.WithInternalClientContext(ctx, discover.SvcClusterManager)
 		for {
 			select {
 			case <-ctx.Done():
@@ -189,7 +188,15 @@ func clusterRegister(ctx context.Context, server *remotedialer.Server, rw http.R
 				return
 			}
 			// TODO: register action after authed better.
-			go registerFunc(clusterKey, clusterInfo)
+
+			regFunc := func(next remotedialer.HandlerFunc) remotedialer.HandlerFunc {
+				return func(ctx *remotedialer.Context) {
+					go registerFunc(clusterKey, clusterInfo)
+					next(ctx)
+				}
+			}
+
+			server.WithMiddleFuncs(req, regFunc)
 		}
 	default:
 		clientDataStr := req.Header.Get(apistructs.ClusterManagerHeaderKeyClientDetail.String())
@@ -284,6 +291,13 @@ func netportal(server *remotedialer.Server, rw http.ResponseWriter, req *http.Re
 	if req.URL.RawQuery != "" {
 		url = fmt.Sprintf("%s?%s", url, req.URL.RawQuery)
 	}
+
+	// if the request is event-stream, should keep connection without timeout
+	//accept := req.Header.Get("Accept")
+	//if strings.Contains(accept, "text/event-stream") || accept == "*/*" {
+	//	timeout = 0
+	//}
+
 	client := getClusterClient(server, clusterKey, timeout)
 	id := atomic.AddInt64(&counter, 1)
 	logrus.Infof("[%d] REQ cluster=%s setting-timeout=%s %s", id, clusterKey, timeout, url)
@@ -311,9 +325,37 @@ func netportal(server *remotedialer.Server, rw http.ResponseWriter, req *http.Re
 	for key, values := range resp.Header {
 		rwHeader[textproto.CanonicalMIMEHeaderKey(key)] = values
 	}
+	logrus.Infof("[%d] REQ Header %v, %s", id, resp.Header, url)
 	rw.WriteHeader(resp.StatusCode)
-	io.Copy(rw, resp.Body)
-	logrus.Infof("[%d] REQ DONE cluster=%s latency=%dms %s", id, clusterKey, time.Since(start).Milliseconds(), url)
+
+	flusher, ok := rw.(http.Flusher)
+	logrus.Infof("[%d] REQ Is Flusher %v, %s", id, ok, url)
+	defer logrus.Infof("[%d] REQ DONE cluster=%s latency=%dms %s", id, clusterKey, time.Since(start).Milliseconds(), url)
+	if !ok {
+		io.Copy(rw, resp.Body)
+		return
+	}
+
+	buf := make([]byte, 4096)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			_, err = rw.Write(buf[:n])
+			if err != nil {
+				logrus.Errorf("Failed to write response: %v", err)
+				break
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			logrus.Errorf("Failed to read response: %v", err)
+			return
+		}
+	}
+
 }
 
 func checkClusterIsExisted(server *remotedialer.Server, rw http.ResponseWriter, req *http.Request) {

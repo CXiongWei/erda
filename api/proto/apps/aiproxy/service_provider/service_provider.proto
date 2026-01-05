@@ -1,0 +1,118 @@
+syntax = "proto3";
+
+package erda.apps.aiproxy.service_provider;
+option go_package = "github.com/erda-project/erda-proto-go/apps/aiproxy/service_provider/pb";
+
+import "google/api/annotations.proto";
+import "apps/aiproxy/metadata/metadata.proto";
+import "google/protobuf/timestamp.proto";
+import "github.com/envoyproxy/protoc-gen-validate/validate/validate.proto";
+import "common/http.proto";
+import "google/protobuf/struct.proto";
+
+service ServiceProviderService {
+    rpc Create(ServiceProviderCreateRequest) returns (ServiceProvider) {
+        option(google.api.http) = {
+            post: "/api/ai-proxy/service-providers"
+        };
+    }
+
+    rpc Get(ServiceProviderGetRequest) returns (ServiceProvider) {
+        option(google.api.http) = {
+            get: "/api/ai-proxy/service-providers/{id}"
+        };
+    }
+
+    rpc Delete(ServiceProviderDeleteRequest) returns (common.VoidResponse) {
+        option(google.api.http) = {
+            delete: "/api/ai-proxy/service-providers/{id}"
+        };
+    }
+
+    rpc Update(ServiceProviderUpdateRequest) returns (ServiceProvider) {
+        option(google.api.http) = {
+            put: "/api/ai-proxy/service-providers/{id}"
+        };
+    }
+
+    rpc Paging(ServiceProviderPagingRequest) returns (ServiceProviderPagingResponse) {
+        option(google.api.http) = {
+            get: "/api/ai-proxy/service-providers?type={type}"
+        };
+    }
+}
+
+message ServiceProvider {
+    string id = 1;
+    google.protobuf.Timestamp createdAt = 2;
+    google.protobuf.Timestamp updatedAt = 3;
+    google.protobuf.Timestamp deletedAt = 4;
+
+    string name = 5;
+    string desc = 6;
+    string type = 7; // Company/Manufacturer/Vendor Name, such as: OpenAI, Azure, Aliyun, Terminus, etc.
+    string apiKey = 8;
+    metadata.Metadata metadata = 9;
+
+    string clientId = 10;
+    string templateId = 11;
+    map<string, string> templateParams = 12;
+    optional bool isEnabled = 13;
+}
+
+message ServiceProviderCreateRequest {
+    string name = 1 [(validate.rules).string = {min_len: 4, max_len: 191}];
+    string desc = 2 [(validate.rules).string = {min_len: 0, max_len: 1024}];
+    metadata.Metadata metadata = 3;
+
+    string clientId = 4 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    string templateId = 5 [(validate.rules).string = {max_len: 36}]; // required, must create from template
+    map<string, string> templateParams = 6; // placeholder values to render template config
+    optional bool isEnabled = 7;
+}
+
+message ServiceProviderGetRequest {
+    string id = 1 [(validate.rules).string = {len: 36}];
+
+    // auto-injected to restrict data permission
+    string clientId = 2 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    bool renderTemplate = 3;
+}
+
+message ServiceProviderDeleteRequest {
+    string id = 1 [(validate.rules).string = {len: 36}];
+
+    // auto-injected to restrict data permission
+    string clientId = 2 [(validate.rules).string = {len: 36, ignore_empty: true}];
+}
+
+message ServiceProviderUpdateRequest {
+    string id = 1 [(validate.rules).string = {len: 36}];
+    string name = 2 [(validate.rules).string = {min_len: 4, max_len: 191}];
+    string desc = 3 [(validate.rules).string = {min_len: 0, max_len: 1024}];
+    metadata.Metadata metadata = 4;
+
+    // auto-injected to restrict data permission
+    string clientId = 5 [(validate.rules).string = {len: 36, ignore_empty: true}];
+    map<string, string> templateParams = 6; // placeholder values to render template config
+    optional bool isEnabled = 7;
+}
+
+message ServiceProviderPagingRequest {
+    uint64 pageNum = 1 [(validate.rules).uint64 = {ignore_empty: true, gte: 1}];
+    uint64 pageSize = 2 [(validate.rules).uint64 = {ignore_empty: true, gte: 1, lte: 1000}];
+    string name = 3 [(validate.rules).string = {ignore_empty: true, min_len: 2, max_len: 191}];
+    string type = 4 [(validate.rules).string = {ignore_empty: true, min_len: 2, max_len: 191}];
+    repeated string ids = 5 [(validate.rules).repeated.items.string = {len: 36}];
+    repeated string orderBys = 6 [(validate.rules).repeated.items.string = {ignore_empty: true, min_len: 2, max_len: 32}];
+
+    string clientId = 7 [(validate.rules).string = {ignore_empty: true, len: 36}];
+    string templateId = 8 [(validate.rules).string = {max_len: 36, ignore_empty: true}];
+    bool renderTemplate = 9;
+    optional bool isEnabled = 10;
+}
+
+message ServiceProviderPagingResponse {
+    int64 total = 1;
+    repeated ServiceProvider list = 2;
+}

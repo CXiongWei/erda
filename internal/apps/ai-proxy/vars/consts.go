@@ -33,10 +33,19 @@ const (
 	XAIProxyMetadata           = "X-Ai-Proxy-Metadata"
 	XAiProxyErdaOpenapiSession = "X-Ai-Proxy-Erda-Openapi-Session"
 	XRequestId                 = "X-Request-Id"
+	XRequestIdLLMBackend       = "X-Request-Id-LLM-Backend"
+	XAIProxyGeneratedCallId    = "X-AI-Proxy-Generated-Call-Id"
 
-	XAIProxyModelId   = "X-AI-Proxy-Model-Id"
-	XAIProxySessionId = "X-AI-Proxy-Session-Id"
-	XAIProxyPromptId  = "X-AI-Proxy-Prompt-Id"
+	XAIProxyModelId        = "X-AI-Proxy-Model-Id"
+	XAIProxySessionId      = "X-AI-Proxy-Session-Id"
+	XAIProxyPromptId       = "X-AI-Proxy-Prompt-Id"
+	XAIProxyModel          = "X-AI-Proxy-Model"
+	XAIProxyModelName      = "X-AI-Proxy-Model-Name"
+	XAIProxyModelPublisher = "X-AI-Proxy-Model-Publisher"
+
+	XAIProxyRequestBodyTransform     = "X-AI-Proxy-Request-Body-Transform"
+	XAIProxyRequestThinkingTransform = "X-AI-Proxy-Request-Thinking-Transform"
+	XAIProxyPolicyGroupTrace         = "X-AI-Proxy-Policy-Group-Trace"
 
 	UIValueUndefined = "undefined"
 )
@@ -45,28 +54,12 @@ const (
 	EnvAIProxyAdminAuthKey = "AI_PROXY_ADMIN_AUTH_KEY"
 )
 
-type (
-	CtxKeyDAO         struct{ CtxKeyDAO any }
-	CtxKeyErdaOpenapi struct{ CtxKeyErdaOpenapi any }
-	CtxKeyIsAdmin     struct{ CtxKeyIsAdmin bool }
-	CtxKeyClientId    struct{ CtxKeyClientId string }
-	CtxKeyClient      struct{ CtxKeyClient any }
+const (
+	McpScopeTypePlatform = "platform"
+	McpScopeTypeClientId = "client"
 
-	CtxKeyRichClientHandler struct{ CtxKeyRichClientHandler any }
-
-	MapKeyClient         struct{ MapKeyClient any }
-	MapKeyModel          struct{ MapKeyModel any }
-	MapKeyModelProvider  struct{ MapKeyModelProvider any }
-	MapKeyPromptTemplate struct{ MapKeyPromptTemplate any }
-	MapKeySession        struct{ MapKeySession any }
-	MapKeyClientToken    struct{ MapKeyClientToken any }
-	MapKeyMessageGroup   struct{ MapKeyMessageGroup any }
-	MapKeyUserPrompt     struct{ MapKeyUserPrompt any }
-	MapKeyIsStream       struct{ MapKeyIsStream any }
-	MapKeyAudit          struct{ MapKeyAudit any }
-	MapKeyAudioInfo      struct{ MapKeyAudioInfo any }
-	MapKeyImageInfo      struct{ MapKeyImageInfo any }
-
-	MapKeyLLMDirectorPassedOnRequest      struct{ MapKeyLLMDirectorPassedOnRequest any }
-	MapKeyLLMDirectorActualResponseWriter struct{ MapKeyLLMDirectorActualResponseWriter any }
+	McpDefaultScopeType = McpScopeTypePlatform
+	McpDefaultScopeId   = "0"
+	McpAnyScopeType     = "*"
+	McpAnyScopeId       = "*"
 )
